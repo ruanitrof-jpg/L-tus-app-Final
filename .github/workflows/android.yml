@@ -1,116 +1,113 @@
 name: Compilar APK Lótus (Android)
 
 on:
-push:
-branches: [ main, master ]
-workflow_dispatch:
+  push:
+    branches:
+      - main
+      - master
+  workflow_dispatch:
 
 jobs:
-build-android:
-runs-on: ubuntu-latest
+  build-android:
+    runs-on: ubuntu-latest
 
-steps:
-  - name: Baixar arquivos do repositório
-    uses: actions/checkout@v4
+    steps:
+      - name: Baixar arquivos do repositório
+        uses: actions/checkout@v4
 
-  - name: Configurar Node.js 20
-    uses: actions/setup-node@v4
-    with:
-      node-version: '20'
+      - name: Configurar Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
 
-  - name: Configurar Java 17 (Android SDK)
-    uses: actions/setup-java@v4
-    with:
-      distribution: 'temurin'
-      java-version: '17'
+      - name: Configurar Java 17 (Android SDK)
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
 
-  - name: Garantir pasta www/index.html
-    run: |
-      mkdir -p www
-      if [ ! -f www/index.html ] && [ -f lotus.html ]; then
-        cp lotus.html www/index.html
-      elif [ ! -f www/index.html ] && [ -f index.html ]; then
-        cp index.html www/index.html
-      fi
-      if [ ! -f www/index.html ]; then
-        echo "ERRO: Arquivo www/index.html (ou lotus.html) não encontrado no repositório!"
-        exit 1
-      fi
-
-  - name: Instalar dependências
-    run: npm install --legacy-peer-deps
-
-  - name: Compilar Tailwind CSS offline para o APK
-    run: |
-      cat << 'EOF' > tailwind.config.js
-      module.exports = {
-        darkMode: 'class',
-        content: ['./www/**/*.html'],
-        theme: {
-          extend: {
-            fontFamily: {
-              serif: ['"Instrument Serif"', 'Georgia', 'serif'],
-              sans: ['Inter', 'system-ui', 'sans-serif'],
-              mono: ['"JetBrains Mono"', 'monospace'],
-            },
-            transitionTimingFunction: {
-              lotus: 'cubic-bezier(0.22, 1, 0.36, 1)',
-            },
-          },
-        },
-      };
-      EOF
-      printf "@tailwind base;\n@tailwind components;\n@tailwind utilities;\n" > tailwind.input.css
-      npx tailwindcss -i tailwind.input.css -o www/tailwind.css --minify
-      node -e "
-        const fs = require('fs');
-        let html = fs.readFileSync('www/index.html', 'utf8');
-        html = html.replace('<script src=\"https://cdn.tailwindcss.com\"></script>', '<link rel=\"stylesheet\" href=\"./tailwind.css\" />');
-        fs.writeFileSync('www/index.html', html);
-      "
-
-  - name: Criar e sincronizar projeto Android (Capacitor)
-    run: |
-      if [ ! -d android ]; then
-        npx cap add android
-      fi
-      npx cap sync android
-
-  - name: Aplicar ícone da flor de Lótus no APK
-    run: |
-      cat << 'EOF' > lotus-icon.svg
-      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="none">
-        <rect width="512" height="512" fill="#050505"/>
-        <path d="M256 128C228 176 228 244 256 300C284 244 284 176 256 128Z" stroke="#FFFFFF" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"/>
-        <path d="M256 300C212 276 172 224 168 168C208 184 236 228 256 300Z" stroke="#FFFFFF" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"/>
-        <path d="M256 300C300 276 340 224 344 168C304 184 276 228 256 300Z" stroke="#FFFFFF" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"/>
-        <path d="M256 300C196 304 140 272 116 224C160 224 208 248 256 300Z" stroke="#FFFFFF" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"/>
-        <path d="M256 300C316 304 372 272 396 224C352 224 304 248 256 300Z" stroke="#FFFFFF" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"/>
-        <path d="M180 344C228 364 284 364 332 344" stroke="#FFFFFF" stroke-width="14" stroke-linecap="round"/>
-      </svg>
-      EOF
-      if command -v convert >/dev/null 2>&1; then
-        for pair in "mdpi:48" "hdpi:72" "xhdpi:96" "xxhdpi:144" "xxxhdpi:192"; do
-          dpi="${pair%%:*}"
-          sz="${pair##*:}"
-          dir="android/app/src/main/res/mipmap-${dpi}"
-          if [ -d "$dir" ]; then
-            convert -background "#050505" lotus-icon.svg -resize ${sz}x${sz} "$dir/ic_launcher.png" || true
-            convert -background "#050505" lotus-icon.svg -resize ${sz}x${sz} "$dir/ic_launcher_round.png" || true
-            convert -background none lotus-icon.svg -resize ${sz}x${sz} "$dir/ic_launcher_foreground.png" || true
+      - name: Garantir pasta www/index.html
+        run: |
+          mkdir -p www
+          if [ ! -f www/index.html ] && [ -f lotus.html ]; then
+            cp lotus.html www/index.html
+          elif [ ! -f www/index.html ] && [ -f index.html ]; then
+            cp index.html www/index.html
           fi
-        done
-      fi
+          if [ ! -f www/index.html ]; then
+            echo "ERRO: Arquivo www/index.html (ou lotus.html) não encontrado!"
+            exit 1
+          fi
 
-  - name: Compilar APK (Gradle)
-    run: |
-      cd android
-      chmod +x gradlew
-      ./gradlew assembleDebug
+      - name: Instalar dependências
+        run: npm install --legacy-peer-deps
 
-  - name: Publicar APK pronto para download
-    uses: actions/upload-artifact@v4
-    with:
-      name: Lotus-Android-APK
-      path: android/app/build/outputs/apk/debug/app-debug.apk
-      retention-days: 14
+      - name: Compilar Tailwind CSS offline para o APK
+        run: |
+          cat << 'EOF' > tailwind.config.js
+          module.exports = {
+            darkMode: 'class',
+            content: ['./www/**/*.html'],
+            theme: {
+              extend: {
+                fontFamily: {
+                  serif: ['"Instrument Serif"', 'Georgia', 'serif'],
+                  sans: ['Inter', 'system-ui', 'sans-serif'],
+                  mono: ['"JetBrains Mono"', 'monospace'],
+                },
+                transitionTimingFunction: {
+                  lotus: 'cubic-bezier(0.22, 1, 0.36, 1)',
+                },
+              },
+            },
+          };
+          EOF
+          printf "@tailwind base;\n@tailwind components;\n@tailwind utilities;\n" > tailwind.input.css
+          npx tailwindcss -i tailwind.input.css -o www/tailwind.css --minify
+          node -e "const fs=require('fs'); let h=fs.readFileSync('www/index.html','utf8'); h=h.replace('<script src=\"https://cdn.tailwindcss.com\"></script>','<link rel=\"stylesheet\" href=\"./tailwind.css\" />'); fs.writeFileSync('www/index.html',h);"
+
+      - name: Criar e sincronizar projeto Android (Capacitor)
+        run: |
+          if [ ! -d android ]; then
+            npx cap add android
+          fi
+          npx cap sync android
+
+      - name: Aplicar ícone da flor de Lótus no APK
+        run: |
+          cat << 'EOF' > lotus-icon.svg
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="none">
+            <rect width="512" height="512" fill="#050505"/>
+            <path d="M256 128C228 176 228 244 256 300C284 244 284 176 256 128Z" stroke="#FFFFFF" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M256 300C212 276 172 224 168 168C208 184 236 228 256 300Z" stroke="#FFFFFF" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M256 300C300 276 340 224 344 168C304 184 276 228 256 300Z" stroke="#FFFFFF" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M256 300C196 304 140 272 116 224C160 224 208 248 256 300Z" stroke="#FFFFFF" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M256 300C316 304 372 272 396 224C352 224 304 248 256 300Z" stroke="#FFFFFF" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M180 344C228 364 284 364 332 344" stroke="#FFFFFF" stroke-width="14" stroke-linecap="round"/>
+          </svg>
+          EOF
+          if command -v convert >/dev/null 2>&1; then
+            for pair in "mdpi:48" "hdpi:72" "xhdpi:96" "xxhdpi:144" "xxxhdpi:192"; do
+              dpi="${pair%%:*}"
+              sz="${pair##*:}"
+              dir="android/app/src/main/res/mipmap-${dpi}"
+              if [ -d "$dir" ]; then
+                convert -background "#050505" lotus-icon.svg -resize ${sz}x${sz} "$dir/ic_launcher.png" || true
+                convert -background "#050505" lotus-icon.svg -resize ${sz}x${sz} "$dir/ic_launcher_round.png" || true
+                convert -background none lotus-icon.svg -resize ${sz}x${sz} "$dir/ic_launcher_foreground.png" || true
+              fi
+            done
+          fi
+
+      - name: Compilar APK (Gradle)
+        run: |
+          cd android
+          chmod +x gradlew
+          ./gradlew assembleDebug
+
+      - name: Publicar APK pronto para download
+        uses: actions/upload-artifact@v4
+        with:
+          name: Lotus-Android-APK
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          retention-days: 14

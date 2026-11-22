@@ -1,4 +1,4 @@
-name: Compilar APK Lótus (Android)
+name: Compilar APK Nitro (Android)
 
 on:
   push:
@@ -26,7 +26,7 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Garantir arquivos de configuração e www/index.html
+      - name: Validar www/index.html e gerar configurações do Nitro
         run: |
           mkdir -p www
           if [ ! -f www/index.html ] && [ -f lotus.html ]; then
@@ -35,17 +35,33 @@ jobs:
             cp index.html www/index.html
           fi
           if [ ! -f www/index.html ]; then
-            echo "ERRO: Arquivo www/index.html (ou lotus.html) não encontrado!"
+            echo "ERRO: Arquivo www/index.html não encontrado!"
             exit 1
           fi
 
-          if [ ! -f package.json ]; then
+          # Remove eventuais marcadores ```html copiados por engano
+          node << 'EOF'
+          const fs = require('fs');
+          let s = fs.readFileSync('www/index.html', 'utf8').trim();
+          s = s.replace(/^```html\s*/i, '').replace(/\s*```$/i, '');
+          fs.writeFileSync('www/index.html', s);
+          EOF
+
+          # Garante que www/index.html é mesmo o código do Nitro
+          if ! grep -q "gl-canvas" www/index.html; then
+            echo "================================================================="
+            echo "ERRO: Seu www/index.html NÃO está com o código novo do Nitro!"
+            echo "Substitua o conteúdo de www/index.html pelo código do lotus.html."
+            echo "================================================================="
+            exit 1
+          fi
+
           cat << 'EOF' > package.json
           {
-            "name": "lotus-analog",
+            "name": "nitro-analog",
             "version": "1.0.0",
             "private": true,
-            "description": "Lótus — Filtro Analógico 3D LUT para Android",
+            "description": "Nitro — Filtro Analógico 3D LUT para Android",
             "dependencies": {
               "@capacitor-community/media": "^6.0.0",
               "@capacitor/android": "6.1.2",
@@ -59,13 +75,11 @@ jobs:
             }
           }
           EOF
-          fi
 
-          if [ ! -f capacitor.config.json ]; then
           cat << 'EOF' > capacitor.config.json
           {
-            "appId": "com.lotus.analog",
-            "appName": "Lótus",
+            "appId": "com.nitro.analog",
+            "appName": "Nitro",
             "webDir": "www",
             "backgroundColor": "#050505",
             "android": {
@@ -74,7 +88,6 @@ jobs:
             }
           }
           EOF
-          fi
 
       - name: Instalar dependências
         run: npm install --legacy-peer-deps
@@ -115,41 +128,108 @@ jobs:
           fi
           npx cap sync android
 
-      - name: Aplicar ícone da flor de Lótus no APK
+      - name: Configurar permissões de Galeria e ícone Nitro PNG
         run: |
-          cat << 'EOF' > lotus-icon.svg
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="none">
-            <rect width="512" height="512" fill="#050505"/>
-            <path d="M256 128C228 176 228 244 256 300C284 244 284 176 256 128Z" stroke="#FFFFFF" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"/>
-            <path d="M256 300C212 276 172 224 168 168C208 184 236 228 256 300Z" stroke="#FFFFFF" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"/>
-            <path d="M256 300C300 276 340 224 344 168C304 184 276 228 256 300Z" stroke="#FFFFFF" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"/>
-            <path d="M256 300C196 304 140 272 116 224C160 224 208 248 256 300Z" stroke="#FFFFFF" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"/>
-            <path d="M256 300C316 304 372 272 396 224C352 224 304 248 256 300Z" stroke="#FFFFFF" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"/>
-            <path d="M180 344C228 364 284 364 332 344" stroke="#FFFFFF" stroke-width="14" stroke-linecap="round"/>
-          </svg>
+          # 1. Permissões para salvar direto no álbum Nitro da Galeria
+          node << 'EOF'
+          const fs = require('fs');
+          const p = 'android/app/src/main/AndroidManifest.xml';
+          let m = fs.readFileSync(p, 'utf8');
+          const perms = [
+            '<uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />',
+            '<uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />',
+            '<uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="29" />'
+          ];
+          for (const perm of perms) {
+            if (!m.includes(perm)) {
+              m = m.replace('<application', '    ' + perm + '\n    <application');
+            }
+          }
+          fs.writeFileSync(p, m);
           EOF
-          if command -v convert >/dev/null 2>&1; then
-            for pair in "mdpi:48" "hdpi:72" "xhdpi:96" "xxhdpi:144" "xxxhdpi:192"; do
-              dpi="${pair%%:*}"
-              sz="${pair##*:}"
-              dir="android/app/src/main/res/mipmap-${dpi}"
-              if [ -d "$dir" ]; then
-                convert -background "#050505" lotus-icon.svg -resize ${sz}x${sz} "$dir/ic_launcher.png" || true
-                convert -background "#050505" lotus-icon.svg -resize ${sz}x${sz} "$dir/ic_launcher_round.png" || true
-                convert -background none lotus-icon.svg -resize ${sz}x${sz} "$dir/ic_launcher_foreground.png" || true
-              fi
-            done
+
+          # 2. Localizar o PNG da logo do Nitro enviado no repositório
+          sudo apt-get update -qq && sudo apt-get install -y -qq imagemagick
+
+          ICON_SRC=$(find . -maxdepth 2 -not -path './android/*' -not -path './node_modules/*' -iname '*nitro*.png' | head -n 1)
+          if [ -z "$ICON_SRC" ]; then
+            ICON_SRC=$(find . -maxdepth 2 -not -path './android/*' -not -path './node_modules/*' -iname 'icon.png' | head -n 1)
           fi
+          if [ -z "$ICON_SRC" ]; then
+            ICON_SRC=$(find . -maxdepth 2 -not -path './android/*' -not -path './node_modules/*' -iname '*.png' | head -n 1)
+          fi
+
+          if [ -z "$ICON_SRC" ]; then
+            echo "ERRO: Envie o arquivo PNG da logo do Nitro para a raiz do repositório!"
+            exit 1
+          fi
+          echo "Usando ícone encontrado: $ICON_SRC"
+
+          # Cor de fundo do ícone: #0A0A0A (preto fosco, máximo contraste pro amarelo)
+          # Se quiser fundo branco, troque "#0A0A0A" abaixo por "#FFFFFF"
+          ICON_BG="#0A0A0A"
+
+          # Se o PNG já tiver fundo sólido (sem transparência), usa branco para não criar borda
+          ALPHA=$(convert "$ICON_SRC" -alpha extract -crop 1x1+0+0 +repage -format "%[fx:mean]" info: 2>/dev/null || echo "1")
+          IS_TRANSPARENT=$(awk "BEGIN {print ($ALPHA < 0.5) ? 1 : 0}")
+          if [ "$IS_TRANSPARENT" -eq 0 ]; then
+            ICON_BG="#FFFFFF"
+          fi
+          echo "Fundo escolhido para o ícone: $ICON_BG (transparente=$IS_TRANSPARENT)"
+
+          # Remove ícones antigos do Capacitor para evitar conflito de recursos
+          find android/app/src/main/res -name "ic_launcher_foreground.*" -delete
+
+          mkdir -p android/app/src/main/res/values
+          mkdir -p android/app/src/main/res/drawable-nodpi
+          mkdir -p android/app/src/main/res/mipmap-anydpi-v26
+
+          cat << EOF > android/app/src/main/res/values/ic_launcher_background.xml
+          <?xml version="1.0" encoding="utf-8"?>
+          <resources>
+              <color name="ic_launcher_background">${ICON_BG}</color>
+          </resources>
+          EOF
+
+          # Camada frontal do Ícone Adaptativo (432x432 com logo centralizada na zona segura de 296px)
+          if [ "$IS_TRANSPARENT" -eq 1 ]; then
+            convert "$ICON_SRC" -trim +repage -resize 296x296 -background none -gravity center -extent 432x432 android/app/src/main/res/drawable-nodpi/ic_launcher_foreground.png
+          else
+            convert "$ICON_SRC" -fuzz 2% -trim +repage -resize 296x296 -background "$ICON_BG" -gravity center -extent 432x432 android/app/src/main/res/drawable-nodpi/ic_launcher_foreground.png
+          fi
+
+          cat << 'EOF' > android/app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml
+          <?xml version="1.0" encoding="utf-8"?>
+          <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+              <background android:drawable="@color/ic_launcher_background" />
+              <foreground android:drawable="@drawable/ic_launcher_foreground" />
+          </adaptive-icon>
+          EOF
+
+          cp android/app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml android/app/src/main/res/mipmap-anydpi-v26/ic_launcher_round.xml
+
+          # Ícones PNG em todas as resoluções para launchers antigos
+          for pair in "mdpi:48" "hdpi:72" "xhdpi:96" "xxhdpi:144" "xxxhdpi:192"; do
+            dpi="${pair%%:*}"
+            sz="${pair##*:}"
+            inner=$(( sz * 80 / 100 ))
+            dir="android/app/src/main/res/mipmap-${dpi}"
+            if [ -d "$dir" ]; then
+              convert "$ICON_SRC" -fuzz 2% -trim +repage -resize "${inner}x${inner}" -background "$ICON_BG" -gravity center -extent "${sz}x${sz}" "$dir/ic_launcher.png"
+              cp "$dir/ic_launcher.png" "$dir/ic_launcher_round.png"
+            fi
+          done
 
       - name: Compilar APK (Gradle)
         run: |
           cd android
           chmod +x gradlew
           ./gradlew assembleDebug
+          cp app/build/outputs/apk/debug/app-debug.apk ../Nitro.apk
 
       - name: Publicar APK pronto para download
         uses: actions/upload-artifact@v4
         with:
-          name: Lotus-Android-APK
-          path: android/app/build/outputs/apk/debug/app-debug.apk
+          name: Nitro-Android-APK
+          path: Nitro.apk
           retention-days: 14

@@ -9,6 +9,12 @@ on:
 
 permissions:
   contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
 
 jobs:
   build-android:
@@ -169,13 +175,12 @@ jobs:
               --notes "Pacote de atualização automática do app Nitro."
           fi
 
-      - name: Publicar versão iPhone (PWA Offline) no GitHub Pages
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Montar versão iPhone (PWA Offline)
         run: |
           rm -rf pages_dist
           mkdir -p pages_dist
           cp -r www/. pages_dist/
+          rm -rf pages_dist/.github
           touch pages_dist/.nojekyll
 
           ICON_SRC=$(find . -maxdepth 2 -not -path './android/*' -not -path './node_modules/*' -not -path './pages_dist/*' -iname '*nitro*.png' | head -n 1)
@@ -218,7 +223,6 @@ jobs:
           }
           EOF
 
-          # Gera Service Worker (sw.js) com lista exata dos arquivos para funcionar 100% offline no iPhone
           BUILD_ID="$BUILD_ID" node << 'EOF'
           const fs = require('fs');
           const files = fs.readdirSync('pages_dist')
@@ -280,16 +284,10 @@ jobs:
           fs.writeFileSync('pages_dist/sw.js', sw);
           EOF
 
-          (
-            cd pages_dist
-            git init -q
-            git config user.name "github-actions[bot]"
-            git config user.email "github-actions[bot]@users.noreply.github.com"
-            git checkout -q -B gh-pages
-            git add -A
-            git commit -q -m "Deploy Nitro iPhone PWA (${BUILD_ID})"
-            git push --force -q "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" gh-pages
-          )
+      - name: Preparar artefato para o GitHub Pages (iPhone)
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: pages_dist
 
       - name: Criar e sincronizar projeto Android (Capacitor)
         run: |
@@ -303,7 +301,6 @@ jobs:
           JAVA_DIR="android/app/src/main/java/com/nitro/analog"
           mkdir -p "$JAVA_DIR"
 
-          # 1. Plugin Nativo de Galeria + Seletor de Fotos (Photo Picker) + Seletor .CUBE
           cat << 'EOF' > "$JAVA_DIR/NitroGalleryPlugin.java"
           package com.nitro.analog;
 
@@ -626,7 +623,6 @@ jobs:
           }
           EOF
 
-          # 2. Plugin Nativo de Auto-Update OTA (baixa do GitHub Releases e aplica sem reinstalar APK)
           cat << 'EOF' > "$JAVA_DIR/NitroUpdaterPlugin.java"
           package com.nitro.analog;
 
@@ -876,7 +872,6 @@ jobs:
           }
           EOF
 
-          # 3. MainActivity registrando os dois plugins + proteção contra OTA antigo ao reinstalar APK
           cat << 'EOF' > "$JAVA_DIR/MainActivity.java"
           package com.nitro.analog;
 
@@ -919,7 +914,6 @@ jobs:
           }
           EOF
 
-          # Permissão de compatibilidade apenas para Android 9 ou inferior
           node << 'EOF'
           const fs = require('fs');
           const p = 'android/app/src/main/AndroidManifest.xml';
@@ -931,7 +925,6 @@ jobs:
           fs.writeFileSync(p, m);
           EOF
 
-          # 4. Ícone clean do Nitro: fundo branco (#FFFFFF) + logo menor e centralizada
           ICON_SRC=$(find . -maxdepth 2 -not -path './android/*' -not -path './node_modules/*' -not -path './pages_dist/*' -iname '*nitro*.png' | head -n 1)
           if [ -z "$ICON_SRC" ]; then
             ICON_SRC=$(find . -maxdepth 2 -not -path './android/*' -not -path './node_modules/*' -not -path './pages_dist/*' -iname 'icon.png' | head -n 1)
@@ -1005,3 +998,14 @@ jobs:
           name: Nitro-Android-APK
           path: Nitro.apk
           retention-days: 14
+
+  deploy-iphone-pwa:
+    needs: build-android
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Publicar link oficial do iPhone (GitHub Pages)
+        id: deployment
+        uses: actions/deploy-pages@v4

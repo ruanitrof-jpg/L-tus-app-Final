@@ -1,0 +1,10 @@
+{
+"appId": "com.lotus.analog",
+"appName": "Lótus",
+"webDir": "www",
+"backgroundColor": "#050505",
+"android": {
+"backgroundColor": "#050505",
+"allowMixedContent": true
+}
+}

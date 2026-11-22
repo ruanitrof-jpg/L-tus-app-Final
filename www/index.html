@@ -287,7 +287,7 @@
         </button>
 
         <p id="home-subtitle" class="mt-6 text-[10px] font-mono tracking-[0.14em] uppercase text-zinc-600">
-          Retro · Amber · Summer · Classic · 35mm · 64
+          C100 · 400 · Sun · Chrome · Gold · K64
         </p>
       </div>
 
@@ -395,7 +395,7 @@
   </div>
 
   <!-- ======================================================
-       4. MOTOR WEBGL1 + LUTS BINÁRIOS + PHOTO PICKER NATIVO + OTA
+       4. MOTOR WEBGL1 + LUTS BINÁRIOS + ÓPTICA DAZZ/KODAK + OTA
        ====================================================== -->
   <script>
     (() => {
@@ -403,67 +403,91 @@
 
       const EMBEDDED_LUTS = {
         retro1: {
-          name: 'Nitro Retro',
-          sub: 'Matte & Frio',
+          name: 'Nitro C100',
+          sub: 'Matte Frio',
           defaultGrain: 8,
           defaultLeak: 0,
           soft: 0.02,
           halation: 0.0,
+          shadowCrush: 0.16,
+          vignette: 0.08,
+          ca: 0.0,
+          kodakMode: 0.0,
           showLeak: false,
           size: 8,
           rawB64: "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"
         },
         retro2: {
-          name: 'Nitro Amber',
-          sub: '35mm Quente',
-          defaultGrain: 34,
+          name: 'Nitro 400',
+          sub: 'Quente & Denso',
+          defaultGrain: 26,
           defaultLeak: 0,
-          soft: 0.06,
-          halation: 0.0,
+          soft: 0.04,
+          halation: 0.10,
+          shadowCrush: 0.74,
+          vignette: 0.18,
+          ca: 0.0,
+          kodakMode: 0.0,
           showLeak: false,
           size: 8,
           rawB64: "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"
         },
         lacreme: {
-          name: 'Nitro Summer',
-          sub: 'Creme & Ouro',
+          name: 'Nitro Sun',
+          sub: 'Verão & Ouro',
           defaultGrain: 6,
           defaultLeak: 0,
           soft: 0.03,
           halation: 0.0,
+          shadowCrush: 0.14,
+          vignette: 0.06,
+          ca: 0.0,
+          kodakMode: 0.0,
           showLeak: false,
           size: 8,
           rawB64: "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"
         },
         fujiClassic: {
-          name: 'Nitro Classic',
-          sub: 'Chrome Suave',
-          defaultGrain: 22,
+          name: 'Nitro Chrome',
+          sub: 'Fuji Analógico',
+          defaultGrain: 20,
           defaultLeak: 0,
-          soft: 0.14,
-          halation: 0.0,
+          soft: 0.08,
+          halation: 0.06,
+          shadowCrush: 0.72,
+          vignette: 0.16,
+          ca: 0.0,
+          kodakMode: 0.0,
           showLeak: false,
           size: 8,
           rawB64: "HhoTPR4XWiMccSchhSslmTAqrzQuyjkzKTYaQDwWWz4acUEghUYlmEoqrk4vyFI0NVAhR1QdXVoYdVsciF0immAnsGMty2YyQGcnUWklY24gdnMbinQfnnUjtXcp0HkuSnouW3ssaoAneoQii4gdoYkhuYol1osqVYs0ZYwzcpAvf5Uqj5olop8gvKAj2qEnXp47bZ86eaM2hakxk68sprQovboi3LsmZ7RBdbVAgbk9jL84msczq84uv9sl3tslIyAyQBw1Xh84dSM7iSg+nCxCtDFG0DVJIDw1QT03XUE7dEU/h0lDm01HslFL1FBLJlUxS1Y9X1w6dV0+iGBDm2NIsWdM0mdLLmowVWtDZW9Ad3Q9i3VAn3dFtXlJ1XpKNHwxXn5JbYBHe4VDjYo/ootCuoxG2Y1IPI0yZ49OdZFNgZZJkJtFo6FBvqJE3aNHR6A5b6NUfKRTiKlPlbBLp7ZHv7xD375GUrY/dMFSg8JSj8dQnc1Nr9NKxdhI4N5FJydPQh9UXh9UdyFWiyVYoClauC1c1TFfKUNMRURTYEFWd0NYi0dan0tdt05g2E9hIlpURFxWYFxWdmBaimNdnmZhuWdh2GljKG9PSXBSZ3BaeXZajHddn3lguXph13xjL4FNT4FRb4JffYZejotco4xevY1g2o9iNpJLVZJRd5RkhJZjkp1gpaJewKRg36ViPaVLW6ZSfKxliq5kmLRiqrlhwb9f4sBhRLxLX8RRg8dnkclnoM5lsdVjyNti4+BhLC5nRSFtYCFtdyFtjCRvoidwvCpy2i5zL0tjSkpqYkNveENvjUVwo0hyvExz3E11LV5kS2BnY2JteWBwjmJyo2VzvWZ13Gh2JHNtRnRuY3ZweXZwjHlzonp0vHx23H54KoVpS4ZqZodsfoZykI1zpI10vY523JB3MZdmUZhoa5hrhZp1k551p6R1wqV24aZ3OKtkV6xnbK9oi7F4mrR3rLt2xMF25MN3P8NiV8ljcMpmkc55otB5s9d4yt145uN3MDV7RSh/YiSCeCSCjCSCoiaEvimG3SyHNFJ3TlB+Y0WEeUWEjUWEpEeGv0qH302INWV2UWd6Z2eBe2KGjmKGpmSHwWaI4GiKMXV5T3d7aHl+fHqEkHmHp3uIwXyK4X6LJ4iCSIqEZYuFfI2Hj4yGpY6IwJCK4ZGLLZt+TZ2AaJ6BfZ+ClJ6HqaaKw6aL4aeLM7F7U7J9a7V+gLZ/mraKrbyKxsSL5sWMOsp5VdB6btF7gtJ9odSLtdiLzOCM6OaNNTuPRiyTZCaZeiaZjiaZoiaZvimb3iudOViKUlWSY0uXe0ibj0ibpEebwEqd4UyfO2yIVW2NamyVfGSdkGSdpmSdwmaf4megOXuKVX2MbH6Qfn6ZkXufp3ufxHyg5H6iNYqOUoyQa42Sfo+WkpCcqZCgxZKi5pOjKZ+ZSqGbZqKdfqSek6agp6Sew6eg5aehL7WTT7eVabuYf7yZk72arLueycak6MWjNdCQUtWSbNeUgdmVlNmVs9ufzeGh6+ilOUKmSDGrZim0eym0jym0pCm0vim03iu3Pl6gVlupZU6vfUq3kEq3pkq3wEq34Uy5QXKcWXKja26we2e1kma5p2a5wma542e7QICcW4KhbYOqgIGzk3y7qXy7xHy75n69PY+gWZGibZOpgZSulJS3q5K9xpK96JTAOKClVqKobKatgKewk6iyqqm6yarA6qzBK7q0TLy2aL+5f8G7lcS9rcbAxcO86sK7Ltu2UNmwa9yygd+1leG2q+K2yOK27uvEPkjBSjXIZyzVfSvVkSvVpivVwCvV3ivVQmS6Vl3KZFDPfkzYkkzYqEzYwkzY4EzYRXe1WHXEbnLOfGnUk2faqWfaxGfa42faRoa0WojAb4fIgoTTkn7Zq37dxn7d5n7dRZW2WpjAcJnFgpnNlZfXrZTfyZTf6JTfQaa7WKrDb6zHg67Lla7Rq63cy6zi66ziPLzCVcHJbcPNgsXQlcfTqsjXxsbg7svkLtvVT97XauDagePclubfr+jhzuvk6ebf"
         },
         film35: {
-          name: 'Nitro 35mm',
-          sub: 'Filme Vencido',
-          defaultGrain: 48,
-          defaultLeak: 48,
-          soft: 0.18,
-          halation: 0.12,
+          name: 'Nitro Gold',
+          sub: 'Kodak 35mm',
+          defaultGrain: 36,
+          defaultLeak: 24,
+          soft: 0.12,
+          halation: 0.36,
+          shadowCrush: 0.42,
+          vignette: 0.34,
+          ca: 0.40,
+          kodakMode: 1.0,
           showLeak: true,
           size: 8,
           rawB64: "MCccRishXTAmczQriTkxnz02tUE6y0Y/OTwkRz8iXEMncUcth0wznVE4s1U9yVlBQ1AsT1IrXVcncloth14ynGM4smc9yGxCTGU0WWY0ZGowc28siHIxnXU3snk9x35CVXo8Yno8bX05eoE1iYcwnok2s4w7yJBAXo5DbI5Ed5BCg5Q+kJk6np41tKA5yaM/ZqNLdaJMgKRKjKdGmKtCp68+tLU4yrc9b7dSfrZTirdRlbpOob5KrsJGvcZCysw7NjAxRyo1Xi45dDI+izdCoTtHt0BMzURRNT0xSkM6YEc/dktEjFBJolRNuFhSzl1XOFQ2U1dCYFs/dV5FimNKoGdPtmxUzHBZPWk5XGxJaG5IdnJEi3VJoHlPtX5Uy4JZQ308ZYFRcoFRfYVNjIpIoY1NtpBTy5RYSpJAbpVYe5VZhphVk5xRoaFMt6RRzKdWU6ZHdqlfhKlgkKtem69ZqbNVt7hQzbtUXLpPf71mjrxnmb5lpMFhscZdv8lZzc9TPDpHSi5NXi5OdTFSjDZWojpauD5fz0JjPklFT0xPYEZSd0pWjk5bpFJfuldk0FtoOVNFTlhOY15XeWNcj2dgpWtlu29q0XNuOW1PUXBTbHNeeXZcjnlho35muYJrz4ZwP4JQVoRVdYdmgYlkj41gpJBluZRrzphwRJZSXJhYfZtti5xtlqBppKVkuqdpz6puSqpUY6xchrB0lK90n7JxrLdsurtn0L5sUL5WbMBjj8N7ncN7qMV5tMl0ws1w0NJqQkRdSTVhYTFmdTJnjDVrozhvuT1y0EF3RVVaVVZkY0lrd0prjk1vpVFzu1V30Vl7Q2FcV2VjaGhsemJvkGVzp2l3vW1703GAPmlaUm5iZ3RrfHlzkn54qIJ9voaB1IqFO4VnUohsaotwhY57kpF4p5R9vJiC0pyGQJpoWJ1sb59yjaKCmqOAp6h7vauA0q6FRq5pXbFudbN0lraIo7aIr7qEvb9/0sGDS8JqY8Vve8d3n8qPrcmPuMyMxdCH09WCR01ySzx3ZDV+eDV/jDV/oziDujyH0T+LS2BvW196Y1F/ek2Djk2EpVCHvFSL0liPS2xuXnB3bnGBfGWHkGWIp2iLvmyP1HCTR3hyXHx4cIB/gYOIkn2MqYCPv4ST1YiXQn5uV4R3a4l/gI+HlZSPqpiUwJyY1qCcO5+FVKCEa6OIgqaMnaiWqquTv66Y1bKdQrKAWbWEcLeIiLmNpryds72bwMKW1cSbR8aAXsmEdsuJjs2Pr9CjvNCiyNSe1tiZTVeHTkKMYT6ReziXjziXozmYujyc0T+fUWqEYGmPZFeUfVCbkVCcpVCcvFSg01ejUneCZHuLdHuWfGybk2igp2igvmuk1W6nUIOEZIeLd4uTh4ydlYCkqYCkwIOn14aqTI6HYJOOdZeUiZubmp2kq5enwpqq2J6uRpSCW5mKb5+ThKSbmamjra6qw7Kv2bazPLedU7qhbbqfhL2jm8CntsKxw8Wu2MiyQ8mYW8ybcs+fidGjodOov9a3y9e12dywU2GdUEmhYkSmfjyvkjywpjywujyw0T+0V3SZZnKkZ16pelmulFS0qFS0vFS001e4WYKWaoWgeYSrfXOwlmu4qmu4vmu41W68WI6Xa5KefZanjZWylIe3rIO8wIO814a/VZqaaZ6gfaKnkKauoKa5rpq/wpq/2Z3CUKSbZKmjea6qjrGwobW2s7e/xLHC27TFSqmWX6+edLSmiLmunb62scO9xsjF3MzJPs61VdG5bNS8htS6nde9tNrBz9zL3N/IWWqyVFG2ZEq7gT/HlT/IqT/IvT/I0T/JXX6ubHy5aWS+e1/Dl1fMq1fMv1fM01fNX42rcI+1f43AgHnFk3TKrW7QwW7Q1W7QYJmqcp2yg6C8kp7Hlo3Mr4bTw4bT14bTXqSrcamyhK26lrDCpa/NraLSxZ3X2Z3XWbGvbrS1gri7lrzCqMDJuMDTx7Ta27TaVLmuab62fcO+ksjFpsvKus/Qy9HZ3cvcT76pY8SxeMm5jM7BodPItdjQyt3X3+Lf"
         },
         kodak64: {
-          name: 'Nitro 64',
-          sub: 'Contraste & Filme',
-          defaultGrain: 28,
+          name: 'Nitro K64',
+          sub: 'Contraste Alto',
+          defaultGrain: 26,
           defaultLeak: 0,
           soft: 0.04,
-          halation: 0.30,
+          halation: 0.32,
+          shadowCrush: 0.22,
+          vignette: 0.22,
+          ca: 0.14,
+          kodakMode: 0.0,
           showLeak: false,
           size: 8,
           rawB64: "AAADDgACNQEAYAEAjQIAuQIA3gMA+QMAAA0CEQ4BOBEAYhEAjREAuBIA3RIA+RIAAjEAFzcAPjIAaTEAlToAvjkA4TkA/DkABVgAHl4AR2UAbloAmlcAxFoA52UA/2QAB4EAJYYASY4Ae5QAnoMAyH4A64EA/5MADaoALK4AT7UAdrsArsMAyqsA7aYA/6cAE84AMtIAVdcAet0Aq+EA2+YA7tAA/8oAGOwAOO4AWvIAf/UApvgA2PoA+/wA/+wAAAAREAATOgERZgEPkwINvgIL4gMK/AMJABISDxAQPQsJcAYCowIA0wMA9gMA/wYAAjYIFTILRDwIczkBpzIA1SoA+CMA/y0ABVwAHFkIQmQGe2kArWEA1mUA+V0A/10ACIUAJIIGR4sDepsAsZcA3o0A/YoA/5IACqwAKqoETrECdr0AsssA38IA/7cA/64AC9AAMc8CU9QBed0ApOUA4/MA/uUA/88CDO0AIPwATP0Ae/0Ap/0A1v0A+PwE/+8EAAA1EQA6OwE5aAI3lwI1wgMz5gMx/gMwABUyCw44PxE6bw41ogkv0QQo9AMh/wsoAzs3Ez44OjcwbDEpnyshzyUa+xMH/yocBmMrFGIoPVkqdWkqo2Ui0VwX/ksB/1cYCIwhFogeRIInb5Eoq5ci2I4a+5IO/40cCrIXGK4WS6smcrUlp8Qi2sIb/bkR/7MkC9UQGdEPQeEQcuMTougZ3O4Z++UW/9QpDPAJDP0AP/wGcf0Ko/0Uzf0f9fws//IsAABcDQFiOwFkaQJimAJhxQNf6QNd/wNcARlXBw1mPA9ocA9nog1i0Apd8wZY/xBZBD5ZCT1hMzRccDphoTZczzBW9yRM/zJRB2hfFW5jQGxfaGJVm1tN0U0/+UEy/1NDCZJTFpVSPY5NZ4NMpZdT0ZJF+oMw/4Q/C7lJF7pFPbJBZbZAnMBK1cJM+bo//7xJDNo/GNk7K+IrZN82muM+0epG+OVG/9hUDPQ2DP0mIf0aYPwqmP0xyv1C9PxQ//RZAAGGCwGMPAGRagKPmQOOxgOM6gOL/wSKAh1/AwyVMgmXbg2Wog6U0AyR8wqN/xOIBUJ/BTyPLzOLbTiRojiPzzaM9DCH/zqFCGuCC2+OMGaGX16CoWeLz2KG9Vh//19+CpeJFZ+QQJ2NbpqKlY59yoNx9XVk/35sC75+FsSAPsB8Yb50jLJsz8KA87xu/7NsDN90FuNzMedsVeJgit1hxeRy9OV6/9x+DPdrDP1mKv1bR/1KgvxQwf1g7/x4//aGAQGuCQG0NgK3agK6mgO4xgO36wS1/wS1AyCnAgvBKgTDawvCoAzB0Ay/9Aq8/xW0BkalBTy7KjK4YTC7nza80Da79DS4/z6yCG6mCXC4KWWyUFS5nmS4z2W382K0/2ewCpmqDKK5MZuzTpO2hYOtzZWz8o+w/5CsDMOyFMy7Psq4bMe2nMWzwLim7qqZ/6iXDOOoFOmtN+qsYOiniOOdsNmP8OWs/9+hDPqgE/2iNf2eV/2WdP2Epfx55/yY//iyAQHSBwHXMwLaawLdmgPbxgPa6wTZ/wTYBCPLAgrkIgLlXwXknQrjzgrh9Arg/xXXB0vIBjvfFCHqUSHlnTPfzjPe9DTd/z7WCXPHCW/bDVzoQ0zijlTdzGLb82La/2rVC5zKC6PaFZ7kOozgd3rZypLY8ZLY/5fUDMTODM/bJNHgS8ndcrzYrKrR78DW/7/TDObVE+/dO+3baevZmenYx+fW49zL/8++DP3UGP3PPf3PZf3OjP3MqvzCxfyg//rVAgHtBAHwMALxawLzmgPyxwPw6wTv/wTvBCfnAw/2IgT2XAvzmxXxyBXv7BXu/xXuB0/jBjzzJDLzUyvxkjXvyT7t7T7t/z7sCXjiCXDwH2PwTljviVjuymrs7mrs/2rrC6DjC6LtIZntRYzteX/tvons7pfr/5frDMblDM3sKsnsS8LsbbXso6br7cLr/8LrDOfnEuzrNOvrWunrfubrnN7rysnr/+XsDP3rHf3rRf3rcf3rnvzsyPzs6/zs+/Xm"
@@ -530,6 +554,10 @@
                 defaultLeak: filter.defaultLeak || 0,
                 soft: filter.soft || 0,
                 halation: filter.halation || 0,
+                shadowCrush: filter.shadowCrush || 0,
+                vignette: filter.vignette || 0,
+                ca: filter.ca || 0,
+                kodakMode: filter.kodakMode || 0,
                 showLeak: Boolean(filter.showLeak),
                 size: filter.size,
                 rgba: filter.rgba,
@@ -676,6 +704,10 @@
           defaultLeak: 0,
           soft: 0.0,
           halation: 0.0,
+          shadowCrush: 0.0,
+          vignette: 0.0,
+          ca: 0.0,
+          kodakMode: 0.0,
           showLeak: false,
           size,
           rgba,
@@ -710,6 +742,10 @@
         uniform float u_leak;
         uniform float u_soft;
         uniform float u_halation;
+        uniform float u_shadowCrush;
+        uniform float u_vignette;
+        uniform float u_ca;
+        uniform float u_kodakMode;
         uniform vec2 u_resolution;
 
         varying vec2 v_uv;
@@ -762,6 +798,54 @@
           return mix(c0, c1, f.b);
         }
 
+        // Emulação de filme Kodak Gold / CPM35 (vibe Dazz Cam) em precisão total
+        vec3 kodakClassicGrade(vec3 c) {
+          vec3 x = clamp(c, 0.0, 1.0);
+
+          // 1. Curva fílmica S-curve com pretos firmes e rolagem cremosa nas altas luzes
+          vec3 toe = pow(max(x, vec3(0.0001)), vec3(1.18));
+          vec3 smoothS = x * x * (3.0 - 2.0 * x);
+          vec3 film = mix(toe, smoothS, 0.44);
+          film = clamp(film / (film * 0.12 + 0.89), 0.0, 1.0);
+
+          // 2. Matriz de corantes Kodak (vermelhos ricos, verdes nostálgicos, azuis ciano profundos)
+          vec3 k;
+          k.r = dot(film, vec3(1.04, 0.03, -0.04));
+          k.g = dot(film, vec3(0.02, 0.97,  0.01));
+          k.b = dot(film, vec3(-0.03, 0.06, 0.94));
+          k = clamp(k, 0.0, 1.0);
+
+          // 3. Split-toning Dazz Cam: altas luzes douradas + sombras profundas com toque frio/esmeralda
+          float lum = dot(k, vec3(0.2126, 0.7152, 0.0722));
+          float hiW = smoothstep(0.30, 0.95, lum);
+          float shW = 1.0 - smoothstep(0.0, 0.38, lum);
+          k *= mix(vec3(1.0), vec3(1.03, 1.00, 0.935), hiW);
+          k *= mix(vec3(1.0), vec3(0.91, 0.97, 1.02), shW * 0.62);
+
+          // 4. Vibração analógica (realça tons médios sem estourar pele)
+          float kMax = max(k.r, max(k.g, k.b));
+          float kMin = min(k.r, min(k.g, k.b));
+          float sat = kMax - kMin;
+          float vib = 0.22 * (1.0 - sat);
+          float kLum = dot(k, vec3(0.2126, 0.7152, 0.0722));
+          k = mix(vec3(kLum), k, 1.0 + vib);
+
+          return clamp(k, 0.0, 1.0);
+        }
+
+        // Remove aspecto lavado e aprofunda o contraste nas sombras preservando matizes
+        vec3 applyShadowContrast(vec3 col, float amount) {
+          float lum = dot(col, vec3(0.2126, 0.7152, 0.0722));
+          float bp = amount * 0.135;
+          float remapped = clamp((lum - bp) / max(1.0 - bp, 0.001), 0.0, 1.0);
+          float sCurve = mix(remapped, remapped * remapped * (3.0 - 2.0 * remapped), amount * 0.42);
+          float gamma = mix(1.0 + amount * 0.52, 0.97, smoothstep(0.0, 0.62, remapped));
+          float targetLum = pow(max(sCurve, 0.0001), gamma);
+          float scale = targetLum / max(lum, 0.0015);
+          vec3 dense = col * mix(1.0, scale, 0.94);
+          return clamp(dense, 0.0, 1.0);
+        }
+
         float hash12(vec2 p) {
           vec3 p3 = fract(vec3(p.xyx) * 0.1031);
           p3 += dot(p3, p3.yzx + 33.33);
@@ -777,6 +861,18 @@
           }
 
           vec3 baseCol = orig;
+
+          // Aberração cromática sutil de lente compacta 35mm (apenas nas bordas)
+          if (u_ca > 0.001) {
+            vec2 offset = v_uv - vec2(0.5);
+            float distSq = dot(offset, offset);
+            vec2 caShift = offset * distSq * u_ca * u_intensity * 0.013;
+            float rCh = texture2D(u_image, clamp(v_uv + caShift, 0.0, 1.0)).r;
+            float bCh = texture2D(u_image, clamp(v_uv - caShift, 0.0, 1.0)).b;
+            baseCol.r = mix(baseCol.r, rCh, 0.85);
+            baseCol.b = mix(baseCol.b, bCh, 0.85);
+          }
+
           if (u_soft > 0.001) {
             vec2 res = max(u_resolution, vec2(1.0));
             float baseScale = max(min(res.x, res.y) / 900.0, 1.0);
@@ -786,23 +882,33 @@
             vec3 s2 = texture2D(u_image, v_uv + vec2(-stepPx.x,  stepPx.y)).rgb;
             vec3 s3 = texture2D(u_image, v_uv + vec2( stepPx.x, -stepPx.y)).rgb;
             vec3 s4 = texture2D(u_image, v_uv + vec2(-stepPx.x, -stepPx.y)).rgb;
-            vec3 softTap = (orig * 2.0 + s1 + s2 + s3 + s4) / 6.0;
+            vec3 softTap = (baseCol * 2.0 + s1 + s2 + s3 + s4) / 6.0;
 
-            float lumOrig = dot(orig, vec3(0.2126, 0.7152, 0.0722));
+            float lumOrig = dot(baseCol, vec3(0.2126, 0.7152, 0.0722));
             float hiMask = smoothstep(0.55, 1.0, lumOrig);
 
-            float softMix = u_soft * u_intensity * (0.45 + 0.55 * hiMask);
-            baseCol = mix(orig, softTap, clamp(softMix, 0.0, 0.55));
-            baseCol += softTap * hiMask * u_soft * u_intensity * 0.12;
+            float softMix = u_soft * u_intensity * (0.42 + 0.58 * hiMask);
+            baseCol = mix(baseCol, softTap, clamp(softMix, 0.0, 0.50));
+            baseCol += softTap * hiMask * u_soft * u_intensity * 0.10;
             baseCol = clamp(baseCol, 0.0, 1.0);
           }
 
-          vec3 graded = (u_lutManual > 0.5)
-            ? sampleLUTManual(u_lut, baseCol, u_lutSize)
-            : sampleLUT(u_lut, baseCol, u_lutSize);
+          vec3 graded;
+          if (u_kodakMode > 0.5) {
+            graded = kodakClassicGrade(baseCol);
+          } else {
+            graded = (u_lutManual > 0.5)
+              ? sampleLUTManual(u_lut, baseCol, u_lutSize)
+              : sampleLUT(u_lut, baseCol, u_lutSize);
+          }
+
+          if (u_shadowCrush > 0.001) {
+            graded = applyShadowContrast(graded, u_shadowCrush);
+          }
 
           vec3 color = mix(orig, graded, u_intensity);
 
+          // Halação quente ao redor de pontos muito brilhantes (assinatura Kodak 35mm)
           if (u_halation > 0.001) {
             vec2 res = max(u_resolution, vec2(1.0));
             float halScale = max(min(res.x, res.y) / 900.0, 1.0);
@@ -813,29 +919,38 @@
             vec3 h3 = texture2D(u_image, v_uv + vec2( halStep.x, -halStep.y)).rgb;
             vec3 h4 = texture2D(u_image, v_uv + vec2(-halStep.x, -halStep.y)).rgb;
 
-            float l1 = smoothstep(0.78, 1.0, dot(h1, vec3(0.2126, 0.7152, 0.0722)));
-            float l2 = smoothstep(0.78, 1.0, dot(h2, vec3(0.2126, 0.7152, 0.0722)));
-            float l3 = smoothstep(0.78, 1.0, dot(h3, vec3(0.2126, 0.7152, 0.0722)));
-            float l4 = smoothstep(0.78, 1.0, dot(h4, vec3(0.2126, 0.7152, 0.0722)));
+            float l1 = smoothstep(0.76, 1.0, dot(h1, vec3(0.2126, 0.7152, 0.0722)));
+            float l2 = smoothstep(0.76, 1.0, dot(h2, vec3(0.2126, 0.7152, 0.0722)));
+            float l3 = smoothstep(0.76, 1.0, dot(h3, vec3(0.2126, 0.7152, 0.0722)));
+            float l4 = smoothstep(0.76, 1.0, dot(h4, vec3(0.2126, 0.7152, 0.0722)));
             float halMask = (l1 + l2 + l3 + l4) * 0.25;
 
-            vec3 halColor = vec3(1.0, 0.32, 0.08) * halMask * u_halation * u_intensity * 0.65;
+            vec3 halColor = vec3(1.0, 0.30, 0.07) * halMask * u_halation * u_intensity * 0.68;
             vec3 halScreen = 1.0 - (1.0 - color) * (1.0 - clamp(halColor, 0.0, 0.9));
-            color = clamp(mix(color, halScreen, 0.8) + halColor * 0.22, 0.0, 1.0);
+            color = clamp(mix(color, halScreen, 0.82) + halColor * 0.22, 0.0, 1.0);
           }
 
+          // Vinheta óptica orgânica de câmera 35mm
+          if (u_vignette > 0.001) {
+            float dist = length(v_uv - vec2(0.5));
+            float vig = smoothstep(0.36, 0.86, dist);
+            color *= (1.0 - vig * u_vignette * u_intensity * 0.68);
+          }
+
+          // Vazamento de luz quente (light leak) ajustável
           if (u_leak > 0.001) {
             float edgeWave = sin(v_uv.y * 3.14159265) * 0.08 + cos(v_uv.y * 6.2831853) * 0.025;
-            float leakMask = smoothstep(0.62, 1.02, v_uv.x + edgeWave);
-            float coreLeak = smoothstep(0.82, 1.04, v_uv.x + edgeWave * 0.65);
+            float leakMask = smoothstep(0.65, 1.02, v_uv.x + edgeWave);
+            float coreLeak = smoothstep(0.84, 1.04, v_uv.x + edgeWave * 0.65);
 
-            vec3 warmTint = mix(vec3(0.95, 0.34, 0.16), vec3(1.0, 0.52, 0.28), coreLeak);
-            vec3 leakLayer = warmTint * (leakMask * 0.62 + coreLeak * 0.28) * u_leak;
+            vec3 warmTint = mix(vec3(0.96, 0.28, 0.10), vec3(1.0, 0.48, 0.18), coreLeak);
+            vec3 leakLayer = warmTint * (leakMask * 0.58 + coreLeak * 0.30) * u_leak;
 
-            vec3 screened = 1.0 - (1.0 - color) * (1.0 - clamp(leakLayer, 0.0, 0.92));
+            vec3 screened = 1.0 - (1.0 - color) * (1.0 - clamp(leakLayer, 0.0, 0.90));
             color = clamp(mix(color, screened, 0.85) + leakLayer * 0.14, 0.0, 1.0);
           }
 
+          // Grão orgânico de filme 35mm
           if (u_grain > 0.001) {
             vec2 res = max(u_resolution, vec2(1.0));
             float aspect = res.x / res.y;
@@ -917,6 +1032,10 @@
             leak: gl.getUniformLocation(this.program, 'u_leak'),
             soft: gl.getUniformLocation(this.program, 'u_soft'),
             halation: gl.getUniformLocation(this.program, 'u_halation'),
+            shadowCrush: gl.getUniformLocation(this.program, 'u_shadowCrush'),
+            vignette: gl.getUniformLocation(this.program, 'u_vignette'),
+            ca: gl.getUniformLocation(this.program, 'u_ca'),
+            kodakMode: gl.getUniformLocation(this.program, 'u_kodakMode'),
             resolution: gl.getUniformLocation(this.program, 'u_resolution'),
           };
 
@@ -1020,7 +1139,7 @@
           const gl = this.gl;
           gl.useProgram(this.program);
 
-          const isOrig = forceOriginal || !filter || filter.id === 'original' || !filter.rgba;
+          const isOrig = forceOriginal || !filter || filter.id === 'original' || (!filter.rgba && !filter.kodakMode);
           const lutEntry = isOrig ? { tex: this.dummyLutTexture, manual: false } : this.getLutEntry(filter);
 
           gl.activeTexture(gl.TEXTURE0);
@@ -1037,6 +1156,10 @@
           gl.uniform1f(this.uniforms.leak, isOrig ? 0.0 : leak);
           gl.uniform1f(this.uniforms.soft, isOrig ? 0.0 : (filter.soft || 0.0));
           gl.uniform1f(this.uniforms.halation, isOrig ? 0.0 : (filter.halation || 0.0));
+          gl.uniform1f(this.uniforms.shadowCrush, isOrig ? 0.0 : (filter.shadowCrush || 0.0));
+          gl.uniform1f(this.uniforms.vignette, isOrig ? 0.0 : (filter.vignette || 0.0));
+          gl.uniform1f(this.uniforms.ca, isOrig ? 0.0 : (filter.ca || 0.0));
+          gl.uniform1f(this.uniforms.kodakMode, isOrig ? 0.0 : (filter.kodakMode || 0.0));
           gl.uniform2f(this.uniforms.resolution, this.canvas.width, this.canvas.height);
 
           gl.drawArrays(gl.TRIANGLES, 0, 6);
@@ -1832,6 +1955,10 @@
               defaultLeak: 0,
               soft: 0.0,
               halation: 0.0,
+              shadowCrush: 0.0,
+              vignette: 0.0,
+              ca: 0.0,
+              kodakMode: 0.0,
               showLeak: false,
               size: 8,
               rgba: null,
@@ -1845,6 +1972,10 @@
               defaultLeak: item.defaultLeak,
               soft: item.soft,
               halation: item.halation || 0.0,
+              shadowCrush: item.shadowCrush || 0.0,
+              vignette: item.vignette || 0.0,
+              ca: item.ca || 0.0,
+              kodakMode: item.kodakMode || 0.0,
               showLeak: item.showLeak,
               size: item.size,
               rgba: decodeRawLutToRGBA(item.rawB64, item.size),

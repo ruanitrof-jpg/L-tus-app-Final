@@ -7,6 +7,9 @@ on:
       - master
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build-android:
     runs-on: ubuntu-latest
@@ -55,7 +58,7 @@ jobs:
           cat << 'EOF' > package.json
           {
             "name": "nitro-analog",
-            "version": "1.1.0",
+            "version": "1.3.0",
             "private": true,
             "description": "Nitro — Filtro Analógico 3D LUT para Android",
             "dependencies": {
@@ -84,15 +87,14 @@ jobs:
 
       - name: Instalar ferramentas e embutir fonte Talks
         run: |
-          sudo apt-get update -qq && sudo apt-get install -y -qq imagemagick unzip
+          sudo apt-get update -qq && sudo apt-get install -y -qq imagemagick unzip zip
 
-          # Procura Talks.ttf / Talks.otf no repositório; se não achar, baixa automaticamente
-          FONT_SRC=$(find . -maxdepth 3 -not -path './android/*' -not -path './node_modules/*' -not -path './www/*' \( -iname '*talks*.ttf' -o -iname '*talks*.otf' \) | head -n 1)
+          FONT_SRC=$(find . -maxdepth 3 -not -path './android/*' -not -path './node_modules/*' -not -path './www/*' \(-iname '*talks*.ttf' -o -iname '*talks*.otf'\) | head -n 1)
           if [ -z "$FONT_SRC" ]; then
             mkdir -p /tmp/talks_font
             if curl -fsSL -A "Mozilla/5.0" "https://dl.dafont.com/dl/?f=talks" -o /tmp/talks_font/talks.zip; then
               unzip -oq /tmp/talks_font/talks.zip -d /tmp/talks_font || true
-              FONT_SRC=$(find /tmp/talks_font \( -iname '*.ttf' -o -iname '*.otf' \) | head -n 1)
+              FONT_SRC=$(find /tmp/talks_font \(-iname '*.ttf' -o -iname '*.otf'\) | head -n 1)
             fi
           fi
 
@@ -107,7 +109,7 @@ jobs:
       - name: Instalar dependências
         run: npm install --legacy-peer-deps
 
-      - name: Compilar Tailwind CSS offline para o APK
+      - name: Compilar Tailwind CSS offline e configurar Auto-Update (OTA)
         run: |
           cat << 'EOF' > tailwind.config.js
           module.exports = {
@@ -129,12 +131,42 @@ jobs:
           EOF
           printf "@tailwind base;\n@tailwind components;\n@tailwind utilities;\n" > tailwind.input.css
           npx tailwindcss -i tailwind.input.css -o www/tailwind.css --minify
-          node << 'EOF'
+
+          BUILD_ID="${GITHUB_SHA:0:7}-$(date -u +%Y%m%d%H%M%S)"
+          OTA_BASE="https://github.com/${GITHUB_REPOSITORY}/releases/download/ota-latest"
+
+          BUILD_ID="$BUILD_ID" OTA_BASE="$OTA_BASE" node << 'EOF'
           const fs = require('fs');
           let h = fs.readFileSync('www/index.html', 'utf8');
           h = h.replace('<script src="https://cdn.tailwindcss.com"></script>', '<link rel="stylesheet" href="./tailwind.css" />');
+          const cfg = `<script>window.__NITRO_BUILD_ID__="${process.env.BUILD_ID}";window.__NITRO_OTA_BASE__="${process.env.OTA_BASE}";</script>`;
+          if (h.includes('<!-- NITRO_OTA_CONFIG -->')) {
+            h = h.replace('<!-- NITRO_OTA_CONFIG -->', cfg);
+          } else {
+            h = h.replace('</head>', cfg + '\n</head>');
+          }
           fs.writeFileSync('www/index.html', h);
           EOF
+
+          (cd www && zip -qr ../nitro-ota.zip .)
+          cat << EOF > version.json
+          {
+            "version": "${BUILD_ID}",
+            "zipUrl": "${OTA_BASE}/nitro-ota.zip"
+          }
+          EOF
+
+      - name: Publicar atualização automática (OTA) no GitHub Releases
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if gh release view ota-latest >/dev/null 2>&1; then
+            gh release upload ota-latest version.json nitro-ota.zip --clobber
+          else
+            gh release create ota-latest version.json nitro-ota.zip \
+              --title "Nitro OTA (Auto-Update)" \
+              --notes "Pacote de atualização automática do app Nitro."
+          fi
 
       - name: Criar e sincronizar projeto Android (Capacitor)
         run: |
@@ -143,36 +175,253 @@ jobs:
           fi
           npx cap sync android
 
-      - name: Instalar módulo nativo de Galeria (MediaStore) e ícone Nitro clean
+      - name: Instalar plugins nativos (Galeria + Photo Picker + Auto-Update OTA) e ícone Nitro clean
         run: |
-          # 1. Módulo nativo Android para salvar direto na Galeria (álbum Nitro) sem menu de compartilhar
           JAVA_DIR="android/app/src/main/java/com/nitro/analog"
           mkdir -p "$JAVA_DIR"
 
+          # 1. Plugin Nativo de Galeria + Seletor de Fotos (Photo Picker) + Seletor .CUBE
           cat << 'EOF' > "$JAVA_DIR/NitroGalleryPlugin.java"
           package com.nitro.analog;
 
+          import android.app.Activity;
+          import android.content.ClipData;
           import android.content.ContentResolver;
           import android.content.ContentValues;
+          import android.content.Intent;
+          import android.database.Cursor;
+          import android.graphics.Bitmap;
+          import android.graphics.ImageDecoder;
           import android.media.MediaScannerConnection;
           import android.net.Uri;
           import android.os.Build;
           import android.os.Environment;
           import android.provider.MediaStore;
+          import android.provider.OpenableColumns;
           import android.util.Base64;
 
+          import androidx.activity.result.ActivityResult;
+
+          import com.getcapacitor.JSArray;
           import com.getcapacitor.JSObject;
           import com.getcapacitor.Plugin;
           import com.getcapacitor.PluginCall;
           import com.getcapacitor.PluginMethod;
+          import com.getcapacitor.annotation.ActivityCallback;
           import com.getcapacitor.annotation.CapacitorPlugin;
 
+          import java.io.ByteArrayOutputStream;
           import java.io.File;
           import java.io.FileOutputStream;
+          import java.io.InputStream;
           import java.io.OutputStream;
+          import java.nio.charset.StandardCharsets;
+          import java.util.ArrayList;
+          import java.util.Arrays;
+          import java.util.Comparator;
+          import java.util.List;
 
           @CapacitorPlugin(name = "NitroGallery")
           public class NitroGalleryPlugin extends Plugin {
+
+              private String queryDisplayName(ContentResolver resolver, Uri uri, String fallback) {
+                  try (Cursor cursor = resolver.query(uri, new String[]{OpenableColumns.DISPLAY_NAME}, null, null, null)) {
+                      if (cursor != null && cursor.moveToFirst()) {
+                          int idx = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME);
+                          if (idx >= 0) {
+                              String name = cursor.getString(idx);
+                              if (name != null && !name.trim().isEmpty()) {
+                                  return name.trim();
+                              }
+                          }
+                      }
+                  } catch (Exception ignored) {}
+                  return fallback;
+              }
+
+              private void cleanupOldCache(File dir, int maxFiles) {
+                  File[] files = dir.listFiles();
+                  if (files == null || files.length <= maxFiles) return;
+                  Arrays.sort(files, Comparator.comparingLong(File::lastModified));
+                  for (int i = 0; i < files.length - maxFiles; i++) {
+                      files[i].delete();
+                  }
+              }
+
+              @PluginMethod
+              public void pickPhotos(PluginCall call) {
+                  try {
+                      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                          Intent pick = new Intent(MediaStore.ACTION_PICK_IMAGES);
+                          pick.setType("image/*");
+                          int maxLimit = Math.min(20, MediaStore.getPickImagesMaxLimit());
+                          if (maxLimit > 1) {
+                              pick.putExtra(MediaStore.EXTRA_PICK_IMAGES_MAX, maxLimit);
+                          }
+                          startActivityForResult(call, pick, "handlePickPhotosResult");
+                          return;
+                      }
+                  } catch (Exception ignored) {}
+
+                  try {
+                      Intent fallback = new Intent(Intent.ACTION_GET_CONTENT);
+                      fallback.addCategory(Intent.CATEGORY_OPENABLE);
+                      fallback.setType("image/*");
+                      fallback.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
+                      startActivityForResult(call, Intent.createChooser(fallback, "Escolher foto"), "handlePickPhotosResult");
+                  } catch (Exception e) {
+                      call.reject("Não foi possível abrir a galeria: " + e.getMessage(), e);
+                  }
+              }
+
+              @ActivityCallback
+              private void handlePickPhotosResult(PluginCall call, ActivityResult result) {
+                  if (call == null) return;
+
+                  if (result.getResultCode() != Activity.RESULT_OK || result.getData() == null) {
+                      JSObject ret = new JSObject();
+                      ret.put("photos", new JSArray());
+                      call.resolve(ret);
+                      return;
+                  }
+
+                  final Intent data = result.getData();
+                  final List<Uri> uris = new ArrayList<>();
+
+                  ClipData clip = data.getClipData();
+                  if (clip != null && clip.getItemCount() > 0) {
+                      for (int i = 0; i < clip.getItemCount(); i++) {
+                          Uri u = clip.getItemAt(i).getUri();
+                          if (u != null) uris.add(u);
+                      }
+                  } else if (data.getData() != null) {
+                      uris.add(data.getData());
+                  }
+
+                  if (uris.isEmpty()) {
+                      JSObject ret = new JSObject();
+                      ret.put("photos", new JSArray());
+                      call.resolve(ret);
+                      return;
+                  }
+
+                  new Thread(() -> {
+                      try {
+                          ContentResolver resolver = getContext().getContentResolver();
+                          File cacheDir = new File(getContext().getCacheDir(), "nitro_picked");
+                          if (!cacheDir.exists()) cacheDir.mkdirs();
+
+                          JSArray photosArr = new JSArray();
+                          long stamp = System.currentTimeMillis();
+
+                          for (int i = 0; i < uris.size(); i++) {
+                              Uri uri = uris.get(i);
+                              String mime = resolver.getType(uri);
+                              String displayName = queryDisplayName(resolver, uri, "foto_" + (i + 1) + ".jpg");
+
+                              boolean isHeif = mime != null && (mime.toLowerCase().contains("heic") || mime.toLowerCase().contains("heif"));
+                              String ext = ".jpg";
+                              if (!isHeif && mime != null) {
+                                  String lower = mime.toLowerCase();
+                                  if (lower.contains("png")) ext = ".png";
+                                  else if (lower.contains("webp")) ext = ".webp";
+                              }
+
+                              File outFile = new File(cacheDir, "img_" + stamp + "_" + i + ext);
+
+                              if (isHeif && Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                                  ImageDecoder.Source src = ImageDecoder.createSource(resolver, uri);
+                                  Bitmap bmp = ImageDecoder.decodeBitmap(src);
+                                  try (FileOutputStream fos = new FileOutputStream(outFile)) {
+                                      bmp.compress(Bitmap.CompressFormat.JPEG, 98, fos);
+                                      fos.flush();
+                                  }
+                                  bmp.recycle();
+                              } else {
+                                  try (InputStream in = resolver.openInputStream(uri);
+                                       FileOutputStream fos = new FileOutputStream(outFile)) {
+                                      if (in == null) continue;
+                                      byte[] buf = new byte[16384];
+                                      int n;
+                                      while ((n = in.read(buf)) != -1) {
+                                          fos.write(buf, 0, n);
+                                      }
+                                      fos.flush();
+                                  }
+                              }
+
+                              JSObject item = new JSObject();
+                              item.put("path", outFile.getAbsolutePath());
+                              item.put("name", displayName);
+                              photosArr.put(item);
+                          }
+
+                          cleanupOldCache(cacheDir, 30);
+
+                          JSObject ret = new JSObject();
+                          ret.put("photos", photosArr);
+                          call.resolve(ret);
+                      } catch (Exception e) {
+                          call.reject("Erro ao carregar foto: " + e.getMessage(), e);
+                      }
+                  }).start();
+              }
+
+              @PluginMethod
+              public void pickCubeFile(PluginCall call) {
+                  try {
+                      Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+                      intent.addCategory(Intent.CATEGORY_OPENABLE);
+                      intent.setType("*/*");
+                      startActivityForResult(call, intent, "handlePickCubeResult");
+                  } catch (Exception e) {
+                      call.reject("Não foi possível abrir arquivos: " + e.getMessage(), e);
+                  }
+              }
+
+              @ActivityCallback
+              private void handlePickCubeResult(PluginCall call, ActivityResult result) {
+                  if (call == null) return;
+
+                  if (result.getResultCode() != Activity.RESULT_OK || result.getData() == null || result.getData().getData() == null) {
+                      JSObject ret = new JSObject();
+                      ret.put("text", "");
+                      call.resolve(ret);
+                      return;
+                  }
+
+                  final Uri uri = result.getData().getData();
+                  new Thread(() -> {
+                      try {
+                          ContentResolver resolver = getContext().getContentResolver();
+                          String name = queryDisplayName(resolver, uri, "Custom.cube");
+                          try (InputStream in = resolver.openInputStream(uri);
+                               ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+                              if (in == null) {
+                                  call.reject("Falha ao abrir arquivo.");
+                                  return;
+                              }
+                              byte[] buf = new byte[8192];
+                              int n;
+                              int total = 0;
+                              while ((n = in.read(buf)) != -1) {
+                                  total += n;
+                                  if (total > 15 * 1024 * 1024) {
+                                      call.reject("Arquivo .CUBE muito grande.");
+                                      return;
+                                  }
+                                  out.write(buf, 0, n);
+                              }
+                              JSObject ret = new JSObject();
+                              ret.put("name", name);
+                              ret.put("text", new String(out.toByteArray(), StandardCharsets.UTF_8));
+                              call.resolve(ret);
+                          }
+                      } catch (Exception e) {
+                          call.reject("Erro ao ler .CUBE: " + e.getMessage(), e);
+                      }
+                  }).start();
+              }
 
               @PluginMethod
               public void saveToGallery(PluginCall call) {
@@ -254,16 +503,294 @@ jobs:
           }
           EOF
 
+          # 2. Plugin Nativo de Auto-Update OTA (baixa do GitHub Releases e aplica sem reinstalar APK)
+          cat << 'EOF' > "$JAVA_DIR/NitroUpdaterPlugin.java"
+          package com.nitro.analog;
+
+          import android.app.Activity;
+          import android.content.SharedPreferences;
+
+          import com.getcapacitor.JSObject;
+          import com.getcapacitor.Plugin;
+          import com.getcapacitor.PluginCall;
+          import com.getcapacitor.PluginMethod;
+          import com.getcapacitor.annotation.CapacitorPlugin;
+
+          import org.json.JSONObject;
+
+          import java.io.BufferedInputStream;
+          import java.io.BufferedOutputStream;
+          import java.io.ByteArrayOutputStream;
+          import java.io.File;
+          import java.io.FileInputStream;
+          import java.io.FileOutputStream;
+          import java.io.IOException;
+          import java.io.InputStream;
+          import java.net.HttpURLConnection;
+          import java.net.URL;
+          import java.nio.charset.StandardCharsets;
+          import java.util.zip.ZipEntry;
+          import java.util.zip.ZipInputStream;
+
+          @CapacitorPlugin(name = "NitroUpdater")
+          public class NitroUpdaterPlugin extends Plugin {
+
+              private static final String PREFS_OTA = "NitroOTA";
+              private static final String PREFS_CAP = "CapWebViewSettings";
+              private static final String KEY_SERVER_PATH = "serverBasePath";
+
+              private HttpURLConnection openWithRedirects(String urlStr, int maxRedirects) throws IOException {
+                  String currentUrl = urlStr;
+                  for (int i = 0; i <= maxRedirects; i++) {
+                      HttpURLConnection conn = (HttpURLConnection) new URL(currentUrl).openConnection();
+                      conn.setInstanceFollowRedirects(false);
+                      conn.setConnectTimeout(10000);
+                      conn.setReadTimeout(25000);
+                      conn.setRequestProperty("User-Agent", "NitroApp-Android");
+                      conn.setRequestProperty("Cache-Control", "no-cache");
+                      int code = conn.getResponseCode();
+                      if (code == 301 || code == 302 || code == 303 || code == 307 || code == 308) {
+                          String location = conn.getHeaderField("Location");
+                          conn.disconnect();
+                          if (location == null || location.isEmpty()) {
+                              throw new IOException("Redirect sem Location.");
+                          }
+                          currentUrl = new URL(new URL(currentUrl), location).toString();
+                          continue;
+                      }
+                      if (code != 200) {
+                          conn.disconnect();
+                          throw new IOException("HTTP " + code);
+                      }
+                      return conn;
+                  }
+                  throw new IOException("Muitos redirecionamentos.");
+              }
+
+              private String fetchText(String urlStr) throws IOException {
+                  HttpURLConnection conn = openWithRedirects(urlStr, 5);
+                  try (InputStream in = new BufferedInputStream(conn.getInputStream());
+                       ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+                      byte[] buf = new byte[4096];
+                      int n;
+                      while ((n = in.read(buf)) != -1) {
+                          out.write(buf, 0, n);
+                      }
+                      return new String(out.toByteArray(), StandardCharsets.UTF_8);
+                  } finally {
+                      conn.disconnect();
+                  }
+              }
+
+              private void downloadToFile(String urlStr, File destFile) throws IOException {
+                  HttpURLConnection conn = openWithRedirects(urlStr, 5);
+                  try (InputStream in = new BufferedInputStream(conn.getInputStream());
+                       FileOutputStream fos = new FileOutputStream(destFile)) {
+                      byte[] buf = new byte[8192];
+                      int n;
+                      while ((n = in.read(buf)) != -1) {
+                          fos.write(buf, 0, n);
+                      }
+                      fos.flush();
+                  } finally {
+                      conn.disconnect();
+                  }
+              }
+
+              private void unzipSafe(File zipFile, File targetDir) throws IOException {
+                  if (!targetDir.exists()) {
+                      targetDir.mkdirs();
+                  }
+                  String canonicalTarget = targetDir.getCanonicalPath() + File.separator;
+                  try (ZipInputStream zis = new ZipInputStream(new BufferedInputStream(new FileInputStream(zipFile)))) {
+                      ZipEntry entry;
+                      byte[] buf = new byte[8192];
+                      while ((entry = zis.getNextEntry()) != null) {
+                          File outFile = new File(targetDir, entry.getName());
+                          String canonicalOut = outFile.getCanonicalPath();
+                          if (!canonicalOut.startsWith(canonicalTarget)) {
+                              throw new IOException("Caminho inválido no zip.");
+                          }
+                          if (entry.isDirectory()) {
+                              outFile.mkdirs();
+                          } else {
+                              File parent = outFile.getParentFile();
+                              if (parent != null && !parent.exists()) {
+                                  parent.mkdirs();
+                              }
+                              try (BufferedOutputStream bos = new BufferedOutputStream(new FileOutputStream(outFile))) {
+                                  int n;
+                                  while ((n = zis.read(buf)) != -1) {
+                                      bos.write(buf, 0, n);
+                                  }
+                                  bos.flush();
+                              }
+                          }
+                          zis.closeEntry();
+                      }
+                  }
+              }
+
+              private void deleteRecursive(File f) {
+                  if (f == null || !f.exists()) return;
+                  if (f.isDirectory()) {
+                      File[] children = f.listFiles();
+                      if (children != null) {
+                          for (File c : children) {
+                              deleteRecursive(c);
+                          }
+                      }
+                  }
+                  f.delete();
+              }
+
+              @PluginMethod
+              public void checkAndUpdate(PluginCall call) {
+                  final String versionUrl = call.getString("versionUrl");
+                  final String currentVersion = call.getString("currentVersion", "");
+
+                  if (versionUrl == null || versionUrl.isEmpty()) {
+                      call.reject("versionUrl ausente.");
+                      return;
+                  }
+
+                  new Thread(() -> {
+                      File tempZip = null;
+                      try {
+                          String sep = versionUrl.contains("?") ? "&" : "?";
+                          String rawJson = fetchText(versionUrl + sep + "t=" + System.currentTimeMillis());
+                          JSONObject obj = new JSONObject(rawJson);
+                          String remoteVersion = obj.optString("version", "").trim();
+                          String zipUrl = obj.optString("zipUrl", "").trim();
+
+                          if (remoteVersion.isEmpty() || zipUrl.isEmpty()) {
+                              call.reject("version.json inválido.");
+                              return;
+                          }
+
+                          SharedPreferences otaPrefs = getContext().getSharedPreferences(PREFS_OTA, Activity.MODE_PRIVATE);
+                          String installedOta = otaPrefs.getString("installedVersion", "");
+
+                          if (remoteVersion.equals(currentVersion) || remoteVersion.equals(installedOta)) {
+                              JSObject ret = new JSObject();
+                              ret.put("updated", false);
+                              ret.put("version", remoteVersion);
+                              call.resolve(ret);
+                              return;
+                          }
+
+                          String safeVer = remoteVersion.replaceAll("[^a-zA-Z0-9_-]", "_");
+                          File otaRoot = new File(getContext().getFilesDir(), "nitro_ota");
+                          if (!otaRoot.exists()) otaRoot.mkdirs();
+
+                          tempZip = new File(otaRoot, "bundle_" + safeVer + ".zip");
+                          File targetDir = new File(otaRoot, "v_" + safeVer);
+                          if (targetDir.exists()) deleteRecursive(targetDir);
+
+                          downloadToFile(zipUrl + "?t=" + System.currentTimeMillis(), tempZip);
+                          unzipSafe(tempZip, targetDir);
+
+                          File indexFile = new File(targetDir, "index.html");
+                          if (!indexFile.exists() || indexFile.length() < 2000) {
+                              deleteRecursive(targetDir);
+                              call.reject("Pacote de atualização incompleto.");
+                              return;
+                          }
+
+                          String newPath = targetDir.getAbsolutePath();
+
+                          getContext().getSharedPreferences(PREFS_CAP, Activity.MODE_PRIVATE)
+                              .edit()
+                              .putString(KEY_SERVER_PATH, newPath)
+                              .commit();
+
+                          otaPrefs.edit()
+                              .putString("installedVersion", remoteVersion)
+                              .putString("bundlePath", newPath)
+                              .commit();
+
+                          File[] dirs = otaRoot.listFiles();
+                          if (dirs != null) {
+                              for (File d : dirs) {
+                                  if (d.isDirectory() && !d.getAbsolutePath().equals(newPath)) {
+                                      deleteRecursive(d);
+                                  }
+                              }
+                          }
+
+                          JSObject ret = new JSObject();
+                          ret.put("updated", true);
+                          ret.put("version", remoteVersion);
+                          call.resolve(ret);
+                      } catch (Exception e) {
+                          call.reject("OTA falhou: " + e.getMessage(), e);
+                      } finally {
+                          if (tempZip != null && tempZip.exists()) {
+                              tempZip.delete();
+                          }
+                      }
+                  }).start();
+              }
+
+              @PluginMethod
+              public void applyNow(PluginCall call) {
+                  SharedPreferences capPrefs = getContext().getSharedPreferences(PREFS_CAP, Activity.MODE_PRIVATE);
+                  final String savedPath = capPrefs.getString(KEY_SERVER_PATH, null);
+                  if (savedPath == null || savedPath.isEmpty()) {
+                      call.reject("Nenhuma atualização pronta.");
+                      return;
+                  }
+                  File indexFile = new File(savedPath, "index.html");
+                  if (!indexFile.exists()) {
+                      call.reject("Arquivos da atualização não encontrados.");
+                      return;
+                  }
+                  getActivity().runOnUiThread(() -> {
+                      getBridge().setServerBasePath(savedPath);
+                      call.resolve();
+                  });
+              }
+          }
+          EOF
+
+          # 3. MainActivity registrando os dois plugins + proteção contra OTA antigo ao reinstalar APK
           cat << 'EOF' > "$JAVA_DIR/MainActivity.java"
           package com.nitro.analog;
 
+          import android.content.SharedPreferences;
           import android.os.Bundle;
           import com.getcapacitor.BridgeActivity;
+          import java.io.File;
 
           public class MainActivity extends BridgeActivity {
               @Override
               public void onCreate(Bundle savedInstanceState) {
+                  try {
+                      long apkUpdateTime = getPackageManager().getPackageInfo(getPackageName(), 0).lastUpdateTime;
+                      SharedPreferences otaPrefs = getSharedPreferences("NitroOTA", MODE_PRIVATE);
+                      SharedPreferences capPrefs = getSharedPreferences("CapWebViewSettings", MODE_PRIVATE);
+                      long savedApkTime = otaPrefs.getLong("apkUpdateTime", -1L);
+
+                      if (savedApkTime != apkUpdateTime) {
+                          capPrefs.edit().remove("serverBasePath").commit();
+                          otaPrefs.edit()
+                              .putLong("apkUpdateTime", apkUpdateTime)
+                              .remove("installedVersion")
+                              .remove("bundlePath")
+                              .commit();
+                      } else {
+                          String savedPath = capPrefs.getString("serverBasePath", null);
+                          if (savedPath != null && !savedPath.isEmpty() && !savedPath.equals("public")) {
+                              File idx = new File(savedPath, "index.html");
+                              if (!idx.exists() || idx.length() < 2000) {
+                                  capPrefs.edit().remove("serverBasePath").commit();
+                              }
+                          }
+                      }
+                  } catch (Exception ignored) {}
+
                   registerPlugin(NitroGalleryPlugin.class);
+                  registerPlugin(NitroUpdaterPlugin.class);
                   super.onCreate(savedInstanceState);
               }
           }
@@ -281,7 +808,7 @@ jobs:
           fs.writeFileSync(p, m);
           EOF
 
-          # 2. Ícone clean do Nitro: fundo branco (#FFFFFF) + logo um pouco menor e centralizada
+          # 4. Ícone clean do Nitro: fundo branco (#FFFFFF) + logo menor e centralizada
           ICON_SRC=$(find . -maxdepth 2 -not -path './android/*' -not -path './node_modules/*' -iname '*nitro*.png' | head -n 1)
           if [ -z "$ICON_SRC" ]; then
             ICON_SRC=$(find . -maxdepth 2 -not -path './android/*' -not -path './node_modules/*' -iname 'icon.png' | head -n 1)
@@ -311,7 +838,6 @@ jobs:
           </resources>
           EOF
 
-          # Logo menor (216px dentro do canvas adaptativo de 432px) sobre fundo branco
           if [ "$IS_TRANSPARENT" -eq 1 ]; then
             convert "$ICON_SRC" -trim +repage -resize 216x216 -background none -gravity center -extent 432x432 android/app/src/main/res/drawable-nodpi/ic_launcher_foreground.png
           else
@@ -328,7 +854,6 @@ jobs:
 
           cp android/app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml android/app/src/main/res/mipmap-anydpi-v26/ic_launcher_round.xml
 
-          # Ícones PNG legados com fundo branco e mais respiro (64%)
           for pair in "mdpi:48" "hdpi:72" "xhdpi:96" "xxhdpi:144" "xxxhdpi:192"; do
             dpi="${pair%%:*}"
             sz="${pair##*:}"
@@ -357,4 +882,3 @@ jobs:
           name: Nitro-Android-APK
           path: Nitro.apk
           retention-days: 14
-

@@ -26,7 +26,7 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: Garantir pasta www/index.html
+      - name: Garantir arquivos de configuração e www/index.html
         run: |
           mkdir -p www
           if [ ! -f www/index.html ] && [ -f lotus.html ]; then
@@ -37,6 +37,43 @@ jobs:
           if [ ! -f www/index.html ]; then
             echo "ERRO: Arquivo www/index.html (ou lotus.html) não encontrado!"
             exit 1
+          fi
+
+          if [ ! -f package.json ]; then
+          cat << 'EOF' > package.json
+          {
+            "name": "lotus-analog",
+            "version": "1.0.0",
+            "private": true,
+            "description": "Lótus — Filtro Analógico 3D LUT para Android",
+            "dependencies": {
+              "@capacitor-community/media": "^6.0.0",
+              "@capacitor/android": "6.1.2",
+              "@capacitor/core": "6.1.2",
+              "@capacitor/filesystem": "^6.0.1",
+              "@capacitor/share": "^6.0.2"
+            },
+            "devDependencies": {
+              "@capacitor/cli": "6.1.2",
+              "tailwindcss": "3.4.15"
+            }
+          }
+          EOF
+          fi
+
+          if [ ! -f capacitor.config.json ]; then
+          cat << 'EOF' > capacitor.config.json
+          {
+            "appId": "com.lotus.analog",
+            "appName": "Lótus",
+            "webDir": "www",
+            "backgroundColor": "#050505",
+            "android": {
+              "backgroundColor": "#050505",
+              "allowMixedContent": true
+            }
+          }
+          EOF
           fi
 
       - name: Instalar dependências
@@ -64,7 +101,12 @@ jobs:
           EOF
           printf "@tailwind base;\n@tailwind components;\n@tailwind utilities;\n" > tailwind.input.css
           npx tailwindcss -i tailwind.input.css -o www/tailwind.css --minify
-          node -e "const fs=require('fs'); let h=fs.readFileSync('www/index.html','utf8'); h=h.replace('<script src=\"https://cdn.tailwindcss.com\"></script>','<link rel=\"stylesheet\" href=\"./tailwind.css\" />'); fs.writeFileSync('www/index.html',h);"
+          node << 'EOF'
+          const fs = require('fs');
+          let h = fs.readFileSync('www/index.html', 'utf8');
+          h = h.replace('<script src="https://cdn.tailwindcss.com"></script>', '<link rel="stylesheet" href="./tailwind.css" />');
+          fs.writeFileSync('www/index.html', h);
+          EOF
 
       - name: Criar e sincronizar projeto Android (Capacitor)
         run: |

@@ -250,7 +250,6 @@
          TELA 1: TELA INICIAL / GALERIA DO CELULAR
          ====================================================== -->
     <div id="home-screen" class="flex-1 flex flex-col min-h-0 bg-[#050505] z-20">
-      <!-- Header da Tela Inicial -->
       <header class="pt-[env(safe-area-inset-top)] border-b border-white/[0.08] bg-[#050505]/95 shrink-0">
         <div class="h-14 px-5 flex items-center justify-between">
           <span class="font-talks text-[28px] leading-none tracking-[0.12em] text-white uppercase select-none">NITRO</span>
@@ -268,7 +267,7 @@
         </div>
       </header>
 
-      <!-- Estado Inicial Vazio: Direciona direto para escolher fotos do celular -->
+      <!-- Estado Inicial Vazio -->
       <div id="home-empty" class="flex-1 flex flex-col items-center justify-center px-6 py-8 text-center">
         <button id="btn-home-hero" type="button" class="w-full max-w-[320px] aspect-[4/5] rounded-[28px] border border-dashed border-white/15 bg-white/[0.02] hover:bg-white/[0.04] active:scale-[0.98] transition duration-200 ease-lotus flex flex-col items-center justify-center px-6 gap-5">
           <div class="w-16 h-16 rounded-2xl bg-white/[0.06] border border-white/10 flex items-center justify-center text-white">
@@ -290,7 +289,7 @@
         </button>
 
         <p id="home-subtitle" class="mt-6 text-[10px] font-mono tracking-[0.14em] uppercase text-zinc-600">
-          C100 · 400 · Sun · Chrome · Gold · K64
+          16 Filtros Analógicos · 3D LUT · Qualidade Original
         </p>
 
         <!-- Dica discreta exibida apenas no Safari do iPhone antes de instalar na Tela de Início -->
@@ -417,19 +416,150 @@
   </div>
 
   <!-- ======================================================
-       4. MOTOR WEBGL1 + LUTS BINÁRIOS + ÓPTICA DAZZ/KODAK + OTA
+       4. MOTOR WEBGL1 + LUTS 16³ + GRANULADO LIGHTROOM + OTA
        ====================================================== -->
   <script>
     (() => {
       'use strict';
 
+      // ======================================================
+      // UTILITÁRIOS DE CIÊNCIA DE COR (GERADOR DE 3D LUT 16³)
+      // ======================================================
+      const clamp01 = (v) => (v < 0 ? 0 : v > 1 ? 1 : v);
+      const mix = (a, b, t) => a + (b - a) * t;
+      const smoothstep = (e0, e1, x) => {
+        const t = clamp01((x - e0) / (e1 - e0));
+        return t * t * (3 - 2 * t);
+      };
+
+      function rgbToHsl(r, g, b) {
+        const max = Math.max(r, g, b);
+        const min = Math.min(r, g, b);
+        let h = 0;
+        let s = 0;
+        const l = (max + min) * 0.5;
+        if (max !== min) {
+          const d = max - min;
+          s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+          if (max === r) h = (g - b) / d + (g < b ? 6 : 0);
+          else if (max === g) h = (b - r) / d + 2;
+          else h = (r - g) / d + 4;
+          h *= 60;
+        }
+        return [h, s, l];
+      }
+
+      function hslToRgb(h, s, l) {
+        h = ((h % 360) + 360) % 360 / 360;
+        if (s === 0) return [l, l, l];
+        const q = l < 0.5 ? l * (1 + s) : l + s - l * s;
+        const p = 2 * l - q;
+        const f = (t) => {
+          if (t < 0) t += 1;
+          if (t > 1) t -= 1;
+          if (t < 1 / 6) return p + (q - p) * 6 * t;
+          if (t < 0.5) return q;
+          if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6;
+          return p;
+        };
+        return [f(h + 1 / 3), f(h), f(h - 1 / 3)];
+      }
+
+      function hueWeight(h, center, width) {
+        let diff = Math.abs(h - center);
+        if (diff > 180) diff = 360 - diff;
+        return Math.max(0, 1 - diff / width);
+      }
+
+      function sCurve(x, strength) {
+        const s = x * x * (3 - 2 * x);
+        return clamp01(mix(x, s, strength));
+      }
+
+      function applyHslBands(r, g, b, bands) {
+        let [h, s, l] = rgbToHsl(r, g, b);
+        let dh = 0;
+        let ds = 0;
+        let dl = 0;
+        for (let i = 0; i < bands.length; i++) {
+          const [center, width, hShift, sMult, lShift] = bands[i];
+          const w = hueWeight(h, center, width);
+          if (w > 0) {
+            dh += hShift * w;
+            ds += sMult * w;
+            dl += lShift * w;
+          }
+        }
+        h = (h + dh + 360) % 360;
+        s = clamp01(s * (1 + ds));
+        l = clamp01(l + dl * (0.25 + 0.75 * s));
+        return hslToRgb(h, s, l);
+      }
+
+      function applySplitTone(r, g, b, shadowTint, hiTint, shadowAmt, hiAmt) {
+        const lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+        const shW = (1 - smoothstep(0.0, 0.52, lum)) * shadowAmt;
+        const hiW = smoothstep(0.38, 1.0, lum) * hiAmt;
+        return [
+          clamp01(r + shadowTint[0] * shW + hiTint[0] * hiW),
+          clamp01(g + shadowTint[1] * shW + hiTint[1] * hiW),
+          clamp01(b + shadowTint[2] * shW + hiTint[2] * hiW),
+        ];
+      }
+
+      function applyCurveAndFade(r, g, b, { black = 0, contrast = 0, gamma = 1, fade = 0, white = 1 }) {
+        const proc = (v) => {
+          let x = clamp01((v - black) / Math.max(white - black, 0.01));
+          x = Math.pow(Math.max(x, 0.0001), gamma);
+          x = sCurve(x, contrast);
+          if (fade > 0) x = fade + x * (1 - fade);
+          return clamp01(x);
+        };
+        return [proc(r), proc(g), proc(b)];
+      }
+
+      function applySaturation(r, g, b, satMult, vib = 0) {
+        const lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+        const sat = Math.max(r, g, b) - Math.min(r, g, b);
+        const total = satMult + vib * (1 - sat);
+        return [
+          clamp01(lum + (r - lum) * total),
+          clamp01(lum + (g - lum) * total),
+          clamp01(lum + (b - lum) * total),
+        ];
+      }
+
+      function generateProceduralLut(gradeFn, N = 16) {
+        const texW = N * N;
+        const rgba = new Uint8Array(texW * N * 4);
+        for (let b = 0; b < N; b++) {
+          const bf = b / (N - 1);
+          for (let g = 0; g < N; g++) {
+            const gf = g / (N - 1);
+            for (let r = 0; r < N; r++) {
+              const rf = r / (N - 1);
+              const [or, og, ob] = gradeFn(rf, gf, bf);
+              const x = b * N + r;
+              const y = g;
+              const idx = (y * texW + x) * 4;
+              rgba[idx]     = Math.round(clamp01(or) * 255);
+              rgba[idx + 1] = Math.round(clamp01(og) * 255);
+              rgba[idx + 2] = Math.round(clamp01(ob) * 255);
+              rgba[idx + 3] = 255;
+            }
+          }
+        }
+        return rgba;
+      }
+
+      // LUTs originais embutidas em base64 (8³)
       const EMBEDDED_LUTS = {
         retro1: {
           name: 'Nitro C100',
           sub: 'Matte Frio',
           defaultGrain: 8,
           defaultLeak: 0,
-          soft: 0.02,
+          soft: 0.0,
           halation: 0.0,
           shadowCrush: 0.16,
           vignette: 0.08,
@@ -442,12 +572,12 @@
         retro2: {
           name: 'Nitro 400',
           sub: 'Quente & Denso',
-          defaultGrain: 26,
+          defaultGrain: 18,
           defaultLeak: 0,
-          soft: 0.04,
-          halation: 0.10,
+          soft: 0.0,
+          halation: 0.08,
           shadowCrush: 0.74,
-          vignette: 0.18,
+          vignette: 0.16,
           ca: 0.0,
           kodakMode: 0.0,
           showLeak: false,
@@ -459,7 +589,7 @@
           sub: 'Verão & Ouro',
           defaultGrain: 6,
           defaultLeak: 0,
-          soft: 0.03,
+          soft: 0.0,
           halation: 0.0,
           shadowCrush: 0.14,
           vignette: 0.06,
@@ -469,31 +599,16 @@
           size: 8,
           rawB64: "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"
         },
-        fujiClassic: {
-          name: 'Nitro Chrome',
-          sub: 'Fuji Analógico',
-          defaultGrain: 20,
-          defaultLeak: 0,
-          soft: 0.08,
-          halation: 0.06,
-          shadowCrush: 0.72,
-          vignette: 0.16,
-          ca: 0.0,
-          kodakMode: 0.0,
-          showLeak: false,
-          size: 8,
-          rawB64: "HhoTPR4XWiMccSchhSslmTAqrzQuyjkzKTYaQDwWWz4acUEghUYlmEoqrk4vyFI0NVAhR1QdXVoYdVsciF0immAnsGMty2YyQGcnUWklY24gdnMbinQfnnUjtXcp0HkuSnouW3ssaoAneoQii4gdoYkhuYol1osqVYs0ZYwzcpAvf5Uqj5olop8gvKAj2qEnXp47bZ86eaM2hakxk68sprQovboi3LsmZ7RBdbVAgbk9jL84msczq84uv9sl3tslIyAyQBw1Xh84dSM7iSg+nCxCtDFG0DVJIDw1QT03XUE7dEU/h0lDm01HslFL1FBLJlUxS1Y9X1w6dV0+iGBDm2NIsWdM0mdLLmowVWtDZW9Ad3Q9i3VAn3dFtXlJ1XpKNHwxXn5JbYBHe4VDjYo/ootCuoxG2Y1IPI0yZ49OdZFNgZZJkJtFo6FBvqJE3aNHR6A5b6NUfKRTiKlPlbBLp7ZHv7xD375GUrY/dMFSg8JSj8dQnc1Nr9NKxdhI4N5FJydPQh9UXh9UdyFWiyVYoClauC1c1TFfKUNMRURTYEFWd0NYi0dan0tdt05g2E9hIlpURFxWYFxWdmBaimNdnmZhuWdh2GljKG9PSXBSZ3BaeXZajHddn3lguXph13xjL4FNT4FRb4JffYZejotco4xevY1g2o9iNpJLVZJRd5RkhJZjkp1gpaJewKRg36ViPaVLW6ZSfKxliq5kmLRiqrlhwb9f4sBhRLxLX8RRg8dnkclnoM5lsdVjyNti4+BhLC5nRSFtYCFtdyFtjCRvoidwvCpy2i5zL0tjSkpqYkNveENvjUVwo0hyvExz3E11LV5kS2BnY2JteWBwjmJyo2VzvWZ13Gh2JHNtRnRuY3ZweXZwjHlzonp0vHx23H54KoVpS4ZqZodsfoZykI1zpI10vY523JB3MZdmUZhoa5hrhZp1k551p6R1wqV24aZ3OKtkV6xnbK9oi7F4mrR3rLt2xMF25MN3P8NiV8ljcMpmkc55otB5s9d4yt145uN3MDV7RSh/YiSCeCSCjCSCoiaEvimG3SyHNFJ3TlB+Y0WEeUWEjUWEpEeGv0qH302INWV2UWd6Z2eBe2KGjmKGpmSHwWaI4GiKMXV5T3d7aHl+fHqEkHmHp3uIwXyK4X6LJ4iCSIqEZYuFfI2Hj4yGpY6IwJCK4ZGLLZt+TZ2AaJ6BfZ+ClJ6HqaaKw6aL4aeLM7F7U7J9a7V+gLZ/mraKrbyKxsSL5sWMOsp5VdB6btF7gtJ9odSLtdiLzOCM6OaNNTuPRiyTZCaZeiaZjiaZoiaZvimb3iudOViKUlWSY0uXe0ibj0ibpEebwEqd4UyfO2yIVW2NamyVfGSdkGSdpmSdwmaf4megOXuKVX2MbH6Qfn6ZkXufp3ufxHyg5H6iNYqOUoyQa42Sfo+WkpCcqZCgxZKi5pOjKZ+ZSqGbZqKdfqSek6agp6Sew6eg5aehL7WTT7eVabuYf7yZk72arLueycak6MWjNdCQUtWSbNeUgdmVlNmVs9ufzeGh6+ilOUKmSDGrZim0eym0jym0pCm0vim03iu3Pl6gVlupZU6vfUq3kEq3pkq3wEq34Uy5QXKcWXKja26we2e1kma5p2a5wma542e7QICcW4KhbYOqgIGzk3y7qXy7xHy75n69PY+gWZGibZOpgZSulJS3q5K9xpK96JTAOKClVqKobKatgKewk6iyqqm6yarA6qzBK7q0TLy2aL+5f8G7lcS9rcbAxcO86sK7Ltu2UNmwa9yygd+1leG2q+K2yOK27uvEPkjBSjXIZyzVfSvVkSvVpivVwCvV3ivVQmS6Vl3KZFDPfkzYkkzYqEzYwkzY4EzYRXe1WHXEbnLOfGnUk2faqWfaxGfa42faRoa0WojAb4fIgoTTkn7Zq37dxn7d5n7dRZW2WpjAcJnFgpnNlZfXrZTfyZTf6JTfQaa7WKrDb6zHg67Lla7Rq63cy6zi66ziPLzCVcHJbcPNgsXQlcfTqsjXxsbg7svkLtvVT97XauDagePclubfr+jhzuvk6ebf"
-        },
         film35: {
           name: 'Nitro Gold',
           sub: 'Kodak 35mm',
-          defaultGrain: 36,
-          defaultLeak: 24,
-          soft: 0.12,
-          halation: 0.36,
+          defaultGrain: 22,
+          defaultLeak: 22,
+          soft: 0.04,
+          halation: 0.34,
           shadowCrush: 0.42,
-          vignette: 0.34,
-          ca: 0.40,
+          vignette: 0.30,
+          ca: 0.32,
           kodakMode: 1.0,
           showLeak: true,
           size: 8,
@@ -502,19 +617,322 @@
         kodak64: {
           name: 'Nitro K64',
           sub: 'Contraste Alto',
-          defaultGrain: 26,
+          defaultGrain: 18,
           defaultLeak: 0,
-          soft: 0.04,
-          halation: 0.32,
+          soft: 0.0,
+          halation: 0.26,
           shadowCrush: 0.22,
-          vignette: 0.22,
-          ca: 0.14,
+          vignette: 0.20,
+          ca: 0.12,
           kodakMode: 0.0,
           showLeak: false,
           size: 8,
           rawB64: "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"
         }
       };
+
+      // ======================================================
+      // NITRO CHROME (CONTRASTE EXAGERADO) + 10 NOVOS PRESETS (RETRO 1–10)
+      // ======================================================
+      const PROCEDURAL_PRESETS = [
+        {
+          // Nitro Chrome — Contraste bem exagerado estilo filme slide puxado (+2 stops)
+          id: 'fujiClassic',
+          name: 'Nitro Chrome',
+          sub: 'Contraste Forte',
+          defaultGrain: 14,
+          defaultLeak: 0,
+          soft: 0.0,
+          halation: 0.08,
+          shadowCrush: 0.20,
+          vignette: 0.24,
+          ca: 0.0,
+          kodakMode: 0.0,
+          showLeak: false,
+          grade: (r, g, b) => {
+            [r, g, b] = applyCurveAndFade(r, g, b, { black: 0.085, white: 0.93, contrast: 0.92, gamma: 1.06, fade: 0 });
+            [r, g, b] = applyHslBands(r, g, b, [
+              [0, 35, -3, 0.28, -0.04],
+              [35, 35, -4, 0.20, 0.02],
+              [120, 50, 8, 0.16, -0.05],
+              [215, 50, -6, 0.30, -0.06],
+            ]);
+            [r, g, b] = applySaturation(r, g, b, 1.24, 0.14);
+            [r, g, b] = applySplitTone(r, g, b, [-0.03, 0.0, 0.04], [0.03, 0.02, -0.02], 0.45, 0.35);
+            return [r, g, b];
+          },
+        },
+        {
+          // Retro (1) — Editorial Frio (verdes sálvia dessaturados, vermelhos coral, magentas/azuis vibrantes)
+          id: 'retro_dng_1',
+          name: 'Nitro R1',
+          sub: 'Editorial Frio',
+          defaultGrain: 12,
+          defaultLeak: 0,
+          soft: 0.0,
+          halation: 0.0,
+          shadowCrush: 0.12,
+          vignette: 0.10,
+          ca: 0.0,
+          kodakMode: 0.0,
+          showLeak: false,
+          grade: (r, g, b) => {
+            [r, g, b] = applyCurveAndFade(r, g, b, { black: 0.025, white: 0.98, contrast: 0.36, gamma: 1.02, fade: 0.02 });
+            [r, g, b] = applyHslBands(r, g, b, [
+              [10, 32, 8, 0.24, -0.02],
+              [42, 32, -8, 0.16, 0.03],
+              [115, 55, 16, -0.62, 0.04],
+              [195, 40, 8, 0.12, -0.02],
+              [240, 40, -6, 0.24, -0.04],
+              [315, 45, 4, 0.28, 0.02],
+            ]);
+            [r, g, b] = applySplitTone(r, g, b, [-0.02, 0.01, 0.055], [-0.01, 0.02, 0.03], 0.55, 0.30);
+            return [r, g, b];
+          },
+        },
+        {
+          // Retro (2) — Filme Pastel Suave (olivas terrosos, rosas empoeirados, azuis suaves e creme)
+          id: 'retro_dng_2',
+          name: 'Nitro Pastel',
+          sub: 'Filme Suave',
+          defaultGrain: 14,
+          defaultLeak: 0,
+          soft: 0.0,
+          halation: 0.0,
+          shadowCrush: 0.10,
+          vignette: 0.12,
+          ca: 0.0,
+          kodakMode: 0.0,
+          showLeak: false,
+          grade: (r, g, b) => {
+            [r, g, b] = applyCurveAndFade(r, g, b, { black: 0.02, white: 0.99, contrast: 0.22, gamma: 0.98, fade: 0.045 });
+            [r, g, b] = applyHslBands(r, g, b, [
+              [5, 35, 6, -0.10, -0.04],
+              [40, 35, -6, -0.08, 0.02],
+              [105, 55, -14, -0.42, 0.02],
+              [205, 45, -10, -0.45, 0.05],
+              [260, 45, -8, -0.52, 0.06],
+              [325, 45, -10, -0.46, 0.04],
+            ]);
+            [r, g, b] = applySaturation(r, g, b, 0.86, 0.06);
+            [r, g, b] = applySplitTone(r, g, b, [-0.02, 0.025, 0.01], [0.025, 0.03, -0.015], 0.45, 0.40);
+            return [r, g, b];
+          },
+        },
+        {
+          // Retro (3) — Quente Vintage (sombras espresso densas, terracota, oliva-bege e mauve suave)
+          id: 'retro_dng_3',
+          name: 'Nitro Terra',
+          sub: 'Quente Vintage',
+          defaultGrain: 16,
+          defaultLeak: 0,
+          soft: 0.0,
+          halation: 0.05,
+          shadowCrush: 0.18,
+          vignette: 0.16,
+          ca: 0.0,
+          kodakMode: 0.0,
+          showLeak: false,
+          grade: (r, g, b) => {
+            [r, g, b] = applyCurveAndFade(r, g, b, { black: 0.045, white: 0.97, contrast: 0.44, gamma: 1.05, fade: 0.025 });
+            [r, g, b] = applyHslBands(r, g, b, [
+              [12, 35, 10, 0.10, -0.04],
+              [48, 35, -14, -0.14, 0.01],
+              [110, 55, -24, -0.58, -0.01],
+              [215, 45, 8, -0.48, -0.03],
+              [290, 45, 8, -0.25, -0.02],
+            ]);
+            [r, g, b] = applySplitTone(r, g, b, [0.03, 0.01, -0.015], [0.045, 0.03, -0.025], 0.55, 0.45);
+            return [r, g, b];
+          },
+        },
+        {
+          // Retro (4) — Teal & Laranja Cinema (sombras verde-petróleo, laranjas quentes, azuis/magentas aqua)
+          id: 'retro_dng_4',
+          name: 'Nitro Cine',
+          sub: 'Teal & Laranja',
+          defaultGrain: 14,
+          defaultLeak: 0,
+          soft: 0.0,
+          halation: 0.08,
+          shadowCrush: 0.22,
+          vignette: 0.18,
+          ca: 0.0,
+          kodakMode: 0.0,
+          showLeak: false,
+          grade: (r, g, b) => {
+            [r, g, b] = applyCurveAndFade(r, g, b, { black: 0.04, white: 0.97, contrast: 0.48, gamma: 1.04, fade: 0.015 });
+            [r, g, b] = applyHslBands(r, g, b, [
+              [8, 30, 16, 0.26, 0.0],
+              [36, 32, -4, 0.24, 0.02],
+              [115, 55, 22, -0.58, -0.03],
+              [190, 45, -12, -0.18, -0.02],
+              [240, 45, -34, -0.64, 0.02],
+              [315, 50, -18, -0.68, 0.03],
+            ]);
+            [r, g, b] = applySplitTone(r, g, b, [-0.045, 0.035, 0.035], [0.03, 0.02, -0.01], 0.65, 0.35);
+            return [r, g, b];
+          },
+        },
+        {
+          // Retro (5) — Areia & Sombra (sombras azul-ardósia, ferrugem, azuis neutros e highlights creme-areia)
+          id: 'retro_dng_5',
+          name: 'Nitro Sand',
+          sub: 'Areia & Sombra',
+          defaultGrain: 16,
+          defaultLeak: 0,
+          soft: 0.0,
+          halation: 0.0,
+          shadowCrush: 0.20,
+          vignette: 0.18,
+          ca: 0.0,
+          kodakMode: 0.0,
+          showLeak: false,
+          grade: (r, g, b) => {
+            [r, g, b] = applyCurveAndFade(r, g, b, { black: 0.045, white: 0.96, contrast: 0.42, gamma: 1.06, fade: 0.03 });
+            [r, g, b] = applyHslBands(r, g, b, [
+              [14, 32, 12, 0.20, -0.03],
+              [42, 32, -10, 0.05, 0.0],
+              [115, 55, -20, -0.78, -0.02],
+              [210, 50, -8, -0.74, -0.04],
+              [295, 55, -15, -0.82, -0.02],
+            ]);
+            [r, g, b] = applySplitTone(r, g, b, [-0.02, 0.005, 0.04], [0.055, 0.04, -0.03], 0.60, 0.55);
+            return [r, g, b];
+          },
+        },
+        {
+          // Retro (6) — Compacta 90s (vermelho clássico, verdes neutros prateados, céu limpo e contraste firme)
+          id: 'retro_dng_6',
+          name: 'Nitro 90s',
+          sub: 'Compacta 35mm',
+          defaultGrain: 14,
+          defaultLeak: 0,
+          soft: 0.0,
+          halation: 0.04,
+          shadowCrush: 0.14,
+          vignette: 0.14,
+          ca: 0.0,
+          kodakMode: 0.0,
+          showLeak: false,
+          grade: (r, g, b) => {
+            [r, g, b] = applyCurveAndFade(r, g, b, { black: 0.03, white: 0.98, contrast: 0.42, gamma: 1.02, fade: 0.015 });
+            [r, g, b] = applyHslBands(r, g, b, [
+              [0, 32, 4, 0.22, -0.02],
+              [45, 32, -8, 0.12, 0.01],
+              [120, 55, 10, -0.70, 0.02],
+              [210, 45, -6, 0.14, -0.02],
+              [310, 45, 6, 0.20, 0.02],
+            ]);
+            [r, g, b] = applySplitTone(r, g, b, [-0.015, 0.01, 0.025], [0.01, 0.015, 0.01], 0.45, 0.25);
+            return [r, g, b];
+          },
+        },
+        {
+          // Retro (7) — Dark & Moody Bronze (low-key espresso, pele/laranjas bronzeados, rubi profundo)
+          id: 'retro_dng_7',
+          name: 'Nitro Bronze',
+          sub: 'Dark & Moody',
+          defaultGrain: 18,
+          defaultLeak: 0,
+          soft: 0.0,
+          halation: 0.0,
+          shadowCrush: 0.24,
+          vignette: 0.24,
+          ca: 0.0,
+          kodakMode: 0.0,
+          showLeak: false,
+          grade: (r, g, b) => {
+            [r, g, b] = applyCurveAndFade(r, g, b, { black: 0.03, white: 0.99, contrast: 0.36, gamma: 1.24, fade: 0.045 });
+            [r, g, b] = applyHslBands(r, g, b, [
+              [10, 35, 10, -0.08, -0.08],
+              [38, 35, -8, -0.04, -0.10],
+              [115, 55, -16, -0.68, -0.08],
+              [205, 50, -14, -0.45, -0.04],
+              [330, 40, 8, 0.18, -0.05],
+            ]);
+            [r, g, b] = applySplitTone(r, g, b, [0.035, 0.015, 0.005], [0.02, 0.01, -0.015], 0.55, 0.35);
+            return [r, g, b];
+          },
+        },
+        {
+          // Retro (8) — Pop Tropical (laranja tangerina vibrante, esmeralda nas sombras, turquesa e magenta)
+          id: 'retro_dng_8',
+          name: 'Nitro Pop',
+          sub: 'Cores Vivas',
+          defaultGrain: 10,
+          defaultLeak: 0,
+          soft: 0.0,
+          halation: 0.0,
+          shadowCrush: 0.18,
+          vignette: 0.12,
+          ca: 0.0,
+          kodakMode: 0.0,
+          showLeak: false,
+          grade: (r, g, b) => {
+            [r, g, b] = applyCurveAndFade(r, g, b, { black: 0.035, white: 0.96, contrast: 0.50, gamma: 1.0, fade: 0.01 });
+            [r, g, b] = applyHslBands(r, g, b, [
+              [10, 32, 18, 0.34, 0.02],
+              [48, 32, -4, 0.24, 0.03],
+              [125, 55, 18, -0.25, -0.02],
+              [195, 45, -10, 0.34, 0.01],
+              [305, 45, 6, 0.34, 0.03],
+            ]);
+            [r, g, b] = applySaturation(r, g, b, 1.16, 0.12);
+            [r, g, b] = applySplitTone(r, g, b, [-0.035, 0.03, 0.015], [0.015, 0.02, 0.01], 0.50, 0.25);
+            return [r, g, b];
+          },
+        },
+        {
+          // Retro (9) — Urban Street (laranja queimado estourando sobre cinza concreto e sombras azul-aço)
+          id: 'retro_dng_9',
+          name: 'Nitro Urban',
+          sub: 'Rua & Contraste',
+          defaultGrain: 16,
+          defaultLeak: 0,
+          soft: 0.0,
+          halation: 0.0,
+          shadowCrush: 0.28,
+          vignette: 0.22,
+          ca: 0.0,
+          kodakMode: 0.0,
+          showLeak: false,
+          grade: (r, g, b) => {
+            [r, g, b] = applyCurveAndFade(r, g, b, { black: 0.05, white: 0.95, contrast: 0.58, gamma: 1.06, fade: 0.015 });
+            [r, g, b] = applyHslBands(r, g, b, [
+              [15, 34, 12, 0.32, -0.02],
+              [42, 30, -10, 0.22, 0.0],
+              [120, 60, -10, -0.88, -0.02],
+              [210, 55, -6, -0.82, -0.03],
+              [300, 55, -12, -0.86, -0.02],
+            ]);
+            [r, g, b] = applySplitTone(r, g, b, [-0.025, 0.005, 0.04], [0.02, 0.015, 0.005], 0.60, 0.25);
+            return [r, g, b];
+          },
+        },
+        {
+          // Retro (10) — P&B Analógico (preto e branco de alto contraste estilo Ilford/Tri-X)
+          id: 'retro_dng_10',
+          name: 'Nitro B&W',
+          sub: 'P&B Analógico',
+          defaultGrain: 22,
+          defaultLeak: 0,
+          soft: 0.0,
+          halation: 0.0,
+          shadowCrush: 0.20,
+          vignette: 0.22,
+          ca: 0.0,
+          kodakMode: 0.0,
+          showLeak: false,
+          grade: (r, g, b) => {
+            let y = clamp01(0.32 * r + 0.54 * g + 0.14 * b);
+            y = clamp01((y - 0.065) / 0.89);
+            y = Math.pow(Math.max(y, 0.0001), 1.08);
+            y = sCurve(y, 0.72);
+            return [y, y, y];
+          },
+        },
+      ];
 
       // ======================================================
       // ARMAZENAMENTO PERMANENTE DE FILTROS .CUBE (INDEXEDDB)
@@ -820,31 +1238,26 @@
           return mix(c0, c1, f.b);
         }
 
-        // Emulação de filme Kodak Gold / CPM35 (vibe Dazz Cam) em precisão total
+        // Emulação de filme Kodak Gold / CPM35 (vibe Dazz Cam)
         vec3 kodakClassicGrade(vec3 c) {
           vec3 x = clamp(c, 0.0, 1.0);
-
-          // 1. Curva fílmica S-curve com pretos firmes e rolagem cremosa nas altas luzes
           vec3 toe = pow(max(x, vec3(0.0001)), vec3(1.18));
           vec3 smoothS = x * x * (3.0 - 2.0 * x);
           vec3 film = mix(toe, smoothS, 0.44);
           film = clamp(film / (film * 0.12 + 0.89), 0.0, 1.0);
 
-          // 2. Matriz de corantes Kodak (vermelhos ricos, verdes nostálgicos, azuis ciano profundos)
           vec3 k;
           k.r = dot(film, vec3(1.04, 0.03, -0.04));
           k.g = dot(film, vec3(0.02, 0.97,  0.01));
           k.b = dot(film, vec3(-0.03, 0.06, 0.94));
           k = clamp(k, 0.0, 1.0);
 
-          // 3. Split-toning Dazz Cam: altas luzes douradas + sombras profundas com toque frio/esmeralda
           float lum = dot(k, vec3(0.2126, 0.7152, 0.0722));
           float hiW = smoothstep(0.30, 0.95, lum);
           float shW = 1.0 - smoothstep(0.0, 0.38, lum);
           k *= mix(vec3(1.0), vec3(1.03, 1.00, 0.935), hiW);
           k *= mix(vec3(1.0), vec3(0.91, 0.97, 1.02), shW * 0.62);
 
-          // 4. Vibração analógica (realça tons médios sem estourar pele)
           float kMax = max(k.r, max(k.g, k.b));
           float kMin = min(k.r, min(k.g, k.b));
           float sat = kMax - kMin;
@@ -855,14 +1268,14 @@
           return clamp(k, 0.0, 1.0);
         }
 
-        // Remove aspecto lavado e aprofunda o contraste nas sombras preservando matizes
+        // Remove aspecto lavado e aprofunda contraste nas sombras preservando matizes
         vec3 applyShadowContrast(vec3 col, float amount) {
           float lum = dot(col, vec3(0.2126, 0.7152, 0.0722));
           float bp = amount * 0.135;
           float remapped = clamp((lum - bp) / max(1.0 - bp, 0.001), 0.0, 1.0);
-          float sCurve = mix(remapped, remapped * remapped * (3.0 - 2.0 * remapped), amount * 0.42);
+          float sCurveVal = mix(remapped, remapped * remapped * (3.0 - 2.0 * remapped), amount * 0.42);
           float gamma = mix(1.0 + amount * 0.52, 0.97, smoothstep(0.0, 0.62, remapped));
-          float targetLum = pow(max(sCurve, 0.0001), gamma);
+          float targetLum = pow(max(sCurveVal, 0.0001), gamma);
           float scale = targetLum / max(lum, 0.0015);
           vec3 dense = col * mix(1.0, scale, 0.94);
           return clamp(dense, 0.0, 1.0);
@@ -888,7 +1301,7 @@
           if (u_ca > 0.001) {
             vec2 offset = v_uv - vec2(0.5);
             float distSq = dot(offset, offset);
-            vec2 caShift = offset * distSq * u_ca * u_intensity * 0.013;
+            vec2 caShift = offset * distSq * u_ca * u_intensity * 0.012;
             float rCh = texture2D(u_image, clamp(v_uv + caShift, 0.0, 1.0)).r;
             float bCh = texture2D(u_image, clamp(v_uv - caShift, 0.0, 1.0)).b;
             baseCol.r = mix(baseCol.r, rCh, 0.85);
@@ -898,7 +1311,7 @@
           if (u_soft > 0.001) {
             vec2 res = max(u_resolution, vec2(1.0));
             float baseScale = max(min(res.x, res.y) / 900.0, 1.0);
-            vec2 stepPx = (vec2(1.35, 1.35) * baseScale) / res;
+            vec2 stepPx = (vec2(1.2, 1.2) * baseScale) / res;
 
             vec3 s1 = texture2D(u_image, v_uv + vec2( stepPx.x,  stepPx.y)).rgb;
             vec3 s2 = texture2D(u_image, v_uv + vec2(-stepPx.x,  stepPx.y)).rgb;
@@ -907,11 +1320,11 @@
             vec3 softTap = (baseCol * 2.0 + s1 + s2 + s3 + s4) / 6.0;
 
             float lumOrig = dot(baseCol, vec3(0.2126, 0.7152, 0.0722));
-            float hiMask = smoothstep(0.55, 1.0, lumOrig);
+            float hiMask = smoothstep(0.62, 1.0, lumOrig);
 
-            float softMix = u_soft * u_intensity * (0.42 + 0.58 * hiMask);
-            baseCol = mix(baseCol, softTap, clamp(softMix, 0.0, 0.50));
-            baseCol += softTap * hiMask * u_soft * u_intensity * 0.10;
+            float softMix = u_soft * u_intensity * hiMask;
+            baseCol = mix(baseCol, softTap, clamp(softMix, 0.0, 0.35));
+            baseCol += softTap * hiMask * u_soft * u_intensity * 0.08;
             baseCol = clamp(baseCol, 0.0, 1.0);
           }
 
@@ -930,7 +1343,7 @@
 
           vec3 color = mix(orig, graded, u_intensity);
 
-          // Halação quente ao redor de pontos muito brilhantes (assinatura Kodak 35mm)
+          // Halação quente ao redor de pontos muito brilhantes
           if (u_halation > 0.001) {
             vec2 res = max(u_resolution, vec2(1.0));
             float halScale = max(min(res.x, res.y) / 900.0, 1.0);
@@ -941,22 +1354,22 @@
             vec3 h3 = texture2D(u_image, v_uv + vec2( halStep.x, -halStep.y)).rgb;
             vec3 h4 = texture2D(u_image, v_uv + vec2(-halStep.x, -halStep.y)).rgb;
 
-            float l1 = smoothstep(0.76, 1.0, dot(h1, vec3(0.2126, 0.7152, 0.0722)));
-            float l2 = smoothstep(0.76, 1.0, dot(h2, vec3(0.2126, 0.7152, 0.0722)));
-            float l3 = smoothstep(0.76, 1.0, dot(h3, vec3(0.2126, 0.7152, 0.0722)));
-            float l4 = smoothstep(0.76, 1.0, dot(h4, vec3(0.2126, 0.7152, 0.0722)));
+            float l1 = smoothstep(0.78, 1.0, dot(h1, vec3(0.2126, 0.7152, 0.0722)));
+            float l2 = smoothstep(0.78, 1.0, dot(h2, vec3(0.2126, 0.7152, 0.0722)));
+            float l3 = smoothstep(0.78, 1.0, dot(h3, vec3(0.2126, 0.7152, 0.0722)));
+            float l4 = smoothstep(0.78, 1.0, dot(h4, vec3(0.2126, 0.7152, 0.0722)));
             float halMask = (l1 + l2 + l3 + l4) * 0.25;
 
-            vec3 halColor = vec3(1.0, 0.30, 0.07) * halMask * u_halation * u_intensity * 0.68;
+            vec3 halColor = vec3(1.0, 0.30, 0.07) * halMask * u_halation * u_intensity * 0.65;
             vec3 halScreen = 1.0 - (1.0 - color) * (1.0 - clamp(halColor, 0.0, 0.9));
-            color = clamp(mix(color, halScreen, 0.82) + halColor * 0.22, 0.0, 1.0);
+            color = clamp(mix(color, halScreen, 0.82) + halColor * 0.20, 0.0, 1.0);
           }
 
-          // Vinheta óptica orgânica de câmera 35mm
+          // Vinheta óptica orgânica
           if (u_vignette > 0.001) {
             float dist = length(v_uv - vec2(0.5));
-            float vig = smoothstep(0.36, 0.86, dist);
-            color *= (1.0 - vig * u_vignette * u_intensity * 0.68);
+            float vig = smoothstep(0.36, 0.88, dist);
+            color *= (1.0 - vig * u_vignette * u_intensity * 0.65);
           }
 
           // Vazamento de luz quente (light leak) ajustável
@@ -972,30 +1385,28 @@
             color = clamp(mix(color, screened, 0.85) + leakLayer * 0.14, 0.0, 1.0);
           }
 
-          // Grão orgânico de filme 35mm
+          // Granulado estilo Lightroom: fino, monocromático, gaussiano e focado nos meios-tons (sem perda de nitidez)
           if (u_grain > 0.001) {
             vec2 res = max(u_resolution, vec2(1.0));
-            float aspect = res.x / res.y;
+            float minDim = min(res.x, res.y);
+            float grainDensity = clamp(minDim * 0.92, 900.0, 2400.0);
+            vec2 gPos = v_uv * vec2(grainDensity * (res.x / minDim), grainDensity * (res.y / minDim));
+            vec2 gCell = floor(gPos);
 
-            vec2 fineGrid = vec2(780.0 * aspect, 780.0);
-            vec2 clumpGrid = vec2(340.0 * aspect, 340.0);
+            // Distribuição pseudo-gaussiana (3 amostras independentes -> textura orgânica de película)
+            float n1 = hash12(gCell + vec2(17.13, 41.79));
+            float n2 = hash12(gCell + vec2(93.41, 12.67));
+            float n3 = hash12(gCell + vec2(53.21, 83.11));
+            float gauss = (n1 + n2 + n3) / 3.0 - 0.5;
 
-            vec2 pFine = floor(v_uv * fineGrid);
-            vec2 pClump = floor(v_uv * clumpGrid);
-
-            float gFine = (hash12(pFine + vec2(17.13, 41.79)) + hash12(pFine + vec2(93.41, 12.67))) - 1.0;
-            float gClump = (hash12(pClump + vec2(53.21, 29.83)) + hash12(pClump + vec2(11.97, 83.11))) - 1.0;
-            float monoGrain = gFine * 0.58 + gClump * 0.42;
-
-            float chromaR = monoGrain * 0.82 + (hash12(pFine + vec2(3.7, 71.1)) - 0.5) * 0.36;
-            float chromaG = monoGrain * 0.86 + (hash12(pFine + vec2(61.3, 19.9)) - 0.5) * 0.28;
-            float chromaB = monoGrain * 0.78 + (hash12(pFine + vec2(27.9, 51.7)) - 0.5) * 0.44;
-
+            // Máscara tonal estilo Lightroom: mais presente nos meios-tons, suave nos pretos e brancos puros
             float lum = dot(color, vec3(0.2126, 0.7152, 0.0722));
-            float filmWeight = clamp(1.0 - abs(lum - 0.45), 0.22, 1.0);
-            float strength = u_grain * 0.175 * filmWeight;
+            float midWeight = 0.20 + 0.80 * clamp(4.0 * lum * (1.0 - lum), 0.0, 1.0);
 
-            color = clamp(color + vec3(chromaR, chromaG, chromaB) * strength, 0.0, 1.0);
+            // Modulação de luminância estilo Soft-Light (preserva 100% das cores e bordas nítidas)
+            float delta = gauss * u_grain * 0.28 * midWeight;
+            vec3 envelope = 0.35 + 0.65 * (1.0 - abs(2.0 * color - 1.0));
+            color = clamp(color + delta * envelope, 0.0, 1.0);
           }
 
           gl_FragColor = vec4(color, 1.0);
@@ -1762,7 +2173,6 @@
               outH = Math.floor(outH * s);
             }
 
-            // Proteção de memória do Safari no iPhone (limite ~16MP para fotos 48MP ProRAW)
             if (isIOSDevice() && outW * outH > 16000000) {
               const s = Math.sqrt(16000000 / (outW * outH));
               outW = Math.floor(outW * s);
@@ -1831,7 +2241,6 @@
             return;
           }
 
-          // No iPhone (Safari / App na Tela de Início): abre a folha nativa com "Salvar Imagem" direto no Rolo da Câmera
           if (isIOSDevice() && navigator.share && typeof File !== 'undefined') {
             const file = new File([blob], filename, { type: 'image/jpeg' });
             if (!navigator.canShare || navigator.canShare({ files: [file] })) {
@@ -2012,6 +2421,45 @@
 
           const savedCubes = await CubeStore.getAll();
 
+          const embeddedList = Object.entries(EMBEDDED_LUTS).map(([id, item]) => ({
+            id,
+            name: item.name,
+            sub: item.sub,
+            defaultGrain: item.defaultGrain,
+            defaultLeak: item.defaultLeak,
+            soft: item.soft,
+            halation: item.halation || 0.0,
+            shadowCrush: item.shadowCrush || 0.0,
+            vignette: item.vignette || 0.0,
+            ca: item.ca || 0.0,
+            kodakMode: item.kodakMode || 0.0,
+            showLeak: item.showLeak,
+            size: item.size,
+            rgba: decodeRawLutToRGBA(item.rawB64, item.size),
+            isImported: false,
+          }));
+
+          const proceduralList = PROCEDURAL_PRESETS.map((item) => ({
+            id: item.id,
+            name: item.name,
+            sub: item.sub,
+            defaultGrain: item.defaultGrain,
+            defaultLeak: item.defaultLeak,
+            soft: item.soft || 0.0,
+            halation: item.halation || 0.0,
+            shadowCrush: item.shadowCrush || 0.0,
+            vignette: item.vignette || 0.0,
+            ca: item.ca || 0.0,
+            kodakMode: item.kodakMode || 0.0,
+            showLeak: item.showLeak,
+            size: 16,
+            rgba: generateProceduralLut(item.grade, 16),
+            isImported: false,
+          }));
+
+          // Ordena mantendo Nitro Chrome logo após Nitro Sun e os 10 novos em seguida
+          const [nitroChrome, ...retroPack] = proceduralList;
+
           appState.filters = [
             {
               id: 'original',
@@ -2030,23 +2478,13 @@
               rgba: null,
               isImported: false,
             },
-            ...Object.entries(EMBEDDED_LUTS).map(([id, item]) => ({
-              id,
-              name: item.name,
-              sub: item.sub,
-              defaultGrain: item.defaultGrain,
-              defaultLeak: item.defaultLeak,
-              soft: item.soft,
-              halation: item.halation || 0.0,
-              shadowCrush: item.shadowCrush || 0.0,
-              vignette: item.vignette || 0.0,
-              ca: item.ca || 0.0,
-              kodakMode: item.kodakMode || 0.0,
-              showLeak: item.showLeak,
-              size: item.size,
-              rgba: decodeRawLutToRGBA(item.rawB64, item.size),
-              isImported: false,
-            })),
+            embeddedList[0], // Nitro C100
+            embeddedList[1], // Nitro 400
+            embeddedList[2], // Nitro Sun
+            nitroChrome,     // Nitro Chrome (Contraste Forte)
+            embeddedList[3], // Nitro Gold
+            embeddedList[4], // Nitro K64
+            ...retroPack,    // 10 novos filtros (Retro 1–10)
             ...savedCubes,
           ];
 

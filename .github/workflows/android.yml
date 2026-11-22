@@ -1,4 +1,4 @@
-name: Compilar APK Nitro (Android)
+name: Compilar APK Nitro (Android + iPhone PWA)
 
 on:
   push:
@@ -58,9 +58,9 @@ jobs:
           cat << 'EOF' > package.json
           {
             "name": "nitro-analog",
-            "version": "1.3.0",
+            "version": "1.4.0",
             "private": true,
-            "description": "Nitro — Filtro Analógico 3D LUT para Android",
+            "description": "Nitro — Filtro Analógico 3D LUT para Android e iPhone",
             "dependencies": {
               "@capacitor/android": "6.1.2",
               "@capacitor/core": "6.1.2"
@@ -134,6 +134,7 @@ jobs:
 
           BUILD_ID="${GITHUB_SHA:0:7}-$(date -u +%Y%m%d%H%M%S)"
           OTA_BASE="https://github.com/${GITHUB_REPOSITORY}/releases/download/ota-latest"
+          echo "BUILD_ID=${BUILD_ID}" >> "$GITHUB_ENV"
 
           BUILD_ID="$BUILD_ID" OTA_BASE="$OTA_BASE" node << 'EOF'
           const fs = require('fs');
@@ -167,6 +168,128 @@ jobs:
               --title "Nitro OTA (Auto-Update)" \
               --notes "Pacote de atualização automática do app Nitro."
           fi
+
+      - name: Publicar versão iPhone (PWA Offline) no GitHub Pages
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          rm -rf pages_dist
+          mkdir -p pages_dist
+          cp -r www/. pages_dist/
+          touch pages_dist/.nojekyll
+
+          ICON_SRC=$(find . -maxdepth 2 -not -path './android/*' -not -path './node_modules/*' -not -path './pages_dist/*' -iname '*nitro*.png' | head -n 1)
+          if [ -z "$ICON_SRC" ]; then
+            ICON_SRC=$(find . -maxdepth 2 -not -path './android/*' -not -path './node_modules/*' -not -path './pages_dist/*' -iname '*.png' | head -n 1)
+          fi
+
+          if [ -n "$ICON_SRC" ]; then
+            ALPHA=$(convert "$ICON_SRC" -alpha extract -crop 1x1+0+0 +repage -format "%[fx:mean]" info: 2>/dev/null || echo "1")
+            IS_TRANSPARENT=$(awk "BEGIN {print ($ALPHA < 0.5) ? 1 : 0}")
+
+            for spec in "apple-touch-icon.png:180:118" "icon-192.png:192:126" "icon-512.png:512:336"; do
+              fname="${spec%%:*}"
+              rest="${spec#*:}"
+              sz="${rest%%:*}"
+              inner="${rest#*:}"
+              if [ "$IS_TRANSPARENT" -eq 1 ]; then
+                convert "$ICON_SRC" -trim +repage -resize "${inner}x${inner}" -background "#FFFFFF" -alpha remove -alpha off -gravity center -extent "${sz}x${sz}" "pages_dist/${fname}"
+              else
+                convert "$ICON_SRC" -fuzz 2% -trim +repage -resize "${inner}x${inner}" -background "#FFFFFF" -gravity center -extent "${sz}x${sz}" "pages_dist/${fname}"
+              fi
+            done
+          fi
+
+          cat << 'EOF' > pages_dist/manifest.webmanifest
+          {
+            "name": "Nitro",
+            "short_name": "Nitro",
+            "description": "Filtros analógicos 3D LUT em qualidade original",
+            "start_url": "./",
+            "scope": "./",
+            "display": "standalone",
+            "orientation": "portrait",
+            "background_color": "#050505",
+            "theme_color": "#050505",
+            "icons": [
+              { "src": "./icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+              { "src": "./icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+            ]
+          }
+          EOF
+
+          # Gera Service Worker (sw.js) com lista exata dos arquivos para funcionar 100% offline no iPhone
+          BUILD_ID="$BUILD_ID" node << 'EOF'
+          const fs = require('fs');
+          const files = fs.readdirSync('pages_dist')
+            .filter((f) => f !== 'sw.js' && f !== '.nojekyll')
+            .map((f) => './' + f);
+          const assets = ['./', ...files];
+          const sw = `
+          const CACHE_NAME = 'nitro-${process.env.BUILD_ID}';
+          const ASSETS = ${JSON.stringify(assets)};
+
+          self.addEventListener('install', (event) => {
+            event.waitUntil(
+              caches.open(CACHE_NAME)
+                .then((cache) => cache.addAll(ASSETS))
+                .then(() => self.skipWaiting())
+            );
+          });
+
+          self.addEventListener('activate', (event) => {
+            event.waitUntil(
+              caches.keys()
+                .then((keys) => Promise.all(keys.filter((k) => k !== CACHE_NAME).map((k) => caches.delete(k))))
+                .then(() => self.clients.claim())
+            );
+          });
+
+          self.addEventListener('fetch', (event) => {
+            if (event.request.method !== 'GET') return;
+            const url = new URL(event.request.url);
+            if (url.origin !== self.location.origin) return;
+
+            if (event.request.mode === 'navigate') {
+              event.respondWith(
+                fetch(event.request)
+                  .then((res) => {
+                    const copy = res.clone();
+                    caches.open(CACHE_NAME).then((c) => c.put('./index.html', copy));
+                    return res;
+                  })
+                  .catch(() => caches.match('./index.html'))
+              );
+              return;
+            }
+
+            event.respondWith(
+              caches.match(event.request).then((cached) => {
+                if (cached) return cached;
+                return fetch(event.request).then((res) => {
+                  if (res && res.status === 200) {
+                    const copy = res.clone();
+                    caches.open(CACHE_NAME).then((c) => c.put(event.request, copy));
+                  }
+                  return res;
+                });
+              })
+            );
+          });
+          `.trim() + '\n';
+          fs.writeFileSync('pages_dist/sw.js', sw);
+          EOF
+
+          (
+            cd pages_dist
+            git init -q
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git checkout -q -B gh-pages
+            git add -A
+            git commit -q -m "Deploy Nitro iPhone PWA (${BUILD_ID})"
+            git push --force -q "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" gh-pages
+          )
 
       - name: Criar e sincronizar projeto Android (Capacitor)
         run: |
@@ -809,12 +932,12 @@ jobs:
           EOF
 
           # 4. Ícone clean do Nitro: fundo branco (#FFFFFF) + logo menor e centralizada
-          ICON_SRC=$(find . -maxdepth 2 -not -path './android/*' -not -path './node_modules/*' -iname '*nitro*.png' | head -n 1)
+          ICON_SRC=$(find . -maxdepth 2 -not -path './android/*' -not -path './node_modules/*' -not -path './pages_dist/*' -iname '*nitro*.png' | head -n 1)
           if [ -z "$ICON_SRC" ]; then
-            ICON_SRC=$(find . -maxdepth 2 -not -path './android/*' -not -path './node_modules/*' -iname 'icon.png' | head -n 1)
+            ICON_SRC=$(find . -maxdepth 2 -not -path './android/*' -not -path './node_modules/*' -not -path './pages_dist/*' -iname 'icon.png' | head -n 1)
           fi
           if [ -z "$ICON_SRC" ]; then
-            ICON_SRC=$(find . -maxdepth 2 -not -path './android/*' -not -path './node_modules/*' -iname '*.png' | head -n 1)
+            ICON_SRC=$(find . -maxdepth 2 -not -path './android/*' -not -path './node_modules/*' -not -path './pages_dist/*' -iname '*.png' | head -n 1)
           fi
 
           if [ -z "$ICON_SRC" ]; then

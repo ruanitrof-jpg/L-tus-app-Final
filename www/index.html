@@ -6,6 +6,9 @@
   <meta name="theme-color" content="#050505" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Nitro" />
+  <link rel="manifest" href="./manifest.webmanifest" />
+  <link rel="apple-touch-icon" href="./apple-touch-icon.png" />
   <title>NITRO</title>
 
   <!-- NITRO_OTA_CONFIG -->
@@ -211,7 +214,7 @@
 <body class="bg-[#050505] text-white antialiased flex items-center justify-center">
 
   <!-- Inputs de fallback (sem display:none para compatibilidade com Android WebView) -->
-  <input id="photo-input" type="file" accept="image/*" class="visually-hidden-input" tabindex="-1" />
+  <input id="photo-input" type="file" accept="image/*" multiple class="visually-hidden-input" tabindex="-1" />
   <input id="cube-input" type="file" accept=".cube,.CUBE,text/plain,*/*" class="visually-hidden-input" tabindex="-1" />
 
   <!-- Toast de confirmação -->
@@ -289,6 +292,25 @@
         <p id="home-subtitle" class="mt-6 text-[10px] font-mono tracking-[0.14em] uppercase text-zinc-600">
           C100 · 400 · Sun · Chrome · Gold · K64
         </p>
+
+        <!-- Dica discreta exibida apenas no Safari do iPhone antes de instalar na Tela de Início -->
+        <div id="ios-install-tip" class="hidden mt-5 w-full max-w-[320px] glass-surface rounded-2xl px-3.5 py-2.5 text-left items-center justify-between gap-2.5">
+          <div class="flex items-center gap-2.5 min-w-0">
+            <span class="w-7 h-7 rounded-xl bg-white/[0.08] border border-white/10 flex items-center justify-center shrink-0 text-white">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" class="w-3.5 h-3.5">
+                <path d="M12 3v12" />
+                <path d="m8 7 4-4 4 4" />
+                <path d="M5 13v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6" />
+              </svg>
+            </span>
+            <p class="text-[11px] text-zinc-300 leading-snug">
+              Instalar no iPhone: toque em <strong class="text-white font-medium">Compartilhar</strong> → <strong class="text-white font-medium">Tela de Início</strong>
+            </p>
+          </div>
+          <button id="btn-close-ios-tip" type="button" aria-label="Fechar dica" class="w-6 h-6 rounded-full text-zinc-500 hover:text-white flex items-center justify-center text-sm shrink-0">
+            ×
+          </button>
+        </div>
       </div>
 
       <!-- Grade estilo Galeria das fotos abertas na sessão -->
@@ -1211,6 +1233,8 @@
         updateBanner: document.getElementById('update-banner'),
         btnApplyUpdate: document.getElementById('btn-apply-update'),
         btnDismissUpdate: document.getElementById('btn-dismiss-update'),
+        iosInstallTip: document.getElementById('ios-install-tip'),
+        btnCloseIosTip: document.getElementById('btn-close-ios-tip'),
         btnGallery: document.getElementById('btn-gallery'),
         btnSave: document.getElementById('btn-save'),
         canvas: document.getElementById('gl-canvas'),
@@ -1352,6 +1376,10 @@
       }
 
       async function applyOtaUpdateNow() {
+        if (window.__NITRO_SW_UPDATE__) {
+          window.location.reload();
+          return;
+        }
         const cap = window.Capacitor;
         const updater = cap && cap.Plugins && cap.Plugins.NitroUpdater;
         if (!updater) return;
@@ -1363,6 +1391,16 @@
           showToast('Feche e abra o app para aplicar');
           dom.btnApplyUpdate.textContent = 'Aplicar';
         }
+      }
+
+      function isIOSDevice() {
+        return /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+          (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+      }
+
+      function isNativeCapacitor() {
+        const cap = window.Capacitor;
+        return Boolean(cap && typeof cap.isNativePlatform === 'function' && cap.isNativePlatform());
       }
 
       function setScreen(screenName) {
@@ -1724,6 +1762,13 @@
               outH = Math.floor(outH * s);
             }
 
+            // Proteção de memória do Safari no iPhone (limite ~16MP para fotos 48MP ProRAW)
+            if (isIOSDevice() && outW * outH > 16000000) {
+              const s = Math.sqrt(16000000 / (outW * outH));
+              outW = Math.floor(outW * s);
+              outH = Math.floor(outH * s);
+            }
+
             exportGL.uploadPhoto(appState.photoImg, outW, outH);
             exportGL.render({
               filter: getActiveFilter(),
@@ -1786,6 +1831,22 @@
             return;
           }
 
+          // No iPhone (Safari / App na Tela de Início): abre a folha nativa com "Salvar Imagem" direto no Rolo da Câmera
+          if (isIOSDevice() && navigator.share && typeof File !== 'undefined') {
+            const file = new File([blob], filename, { type: 'image/jpeg' });
+            if (!navigator.canShare || navigator.canShare({ files: [file] })) {
+              try {
+                await navigator.share({ files: [file], title: 'Nitro' });
+                showToast(`Exportado • ${width} × ${height}`);
+                return;
+              } catch (shareErr) {
+                if (shareErr && shareErr.name === 'AbortError') {
+                  return;
+                }
+              }
+            }
+          }
+
           downloadBlob(blob, filename);
           showToast(`Salvo em ${width} × ${height}`);
         } catch (err) {
@@ -1806,6 +1867,11 @@
         dom.btnDismissUpdate.addEventListener('click', () => {
           dom.updateBanner.classList.add('hidden');
           dom.updateBanner.classList.remove('flex');
+        });
+        dom.btnCloseIosTip.addEventListener('click', () => {
+          dom.iosInstallTip.classList.add('hidden');
+          dom.iosInstallTip.classList.remove('flex');
+          try { localStorage.setItem('nitro_ios_tip_closed', '1'); } catch (_) {}
         });
 
         dom.btnGallery.addEventListener('click', () => {
@@ -1996,6 +2062,37 @@
             dom.btnCheckUpdate.classList.remove('hidden');
             dom.btnCheckUpdate.classList.add('flex');
             setTimeout(() => checkForOtaUpdate(true), 1800);
+          }
+
+          // Modo iPhone / Web PWA: registra cache 100% offline e exibe dica discreta no Safari
+          if (!isNativeCapacitor()) {
+            const isStandalone = Boolean(
+              window.navigator.standalone ||
+              (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches)
+            );
+            let tipClosed = false;
+            try { tipClosed = localStorage.getItem('nitro_ios_tip_closed') === '1'; } catch (_) {}
+
+            if (isIOSDevice() && !isStandalone && !tipClosed) {
+              dom.iosInstallTip.classList.remove('hidden');
+              dom.iosInstallTip.classList.add('flex');
+            }
+
+            if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
+              navigator.serviceWorker.register('./sw.js').then((reg) => {
+                reg.addEventListener('updatefound', () => {
+                  const next = reg.installing;
+                  if (!next) return;
+                  next.addEventListener('statechange', () => {
+                    if (next.state === 'installed' && navigator.serviceWorker.controller) {
+                      window.__NITRO_SW_UPDATE__ = true;
+                      dom.updateBanner.classList.remove('hidden');
+                      dom.updateBanner.classList.add('flex');
+                    }
+                  });
+                });
+              }).catch(() => {});
+            }
           }
         } catch (err) {
           console.error('Erro ao iniciar Nitro:', err);

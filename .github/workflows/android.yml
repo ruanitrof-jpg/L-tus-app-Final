@@ -47,27 +47,20 @@ jobs:
           fs.writeFileSync('www/index.html', s);
           EOF
 
-          # Garante que www/index.html é mesmo o código do Nitro
           if ! grep -q "gl-canvas" www/index.html; then
-            echo "================================================================="
-            echo "ERRO: Seu www/index.html NÃO está com o código novo do Nitro!"
-            echo "Substitua o conteúdo de www/index.html pelo código do lotus.html."
-            echo "================================================================="
+            echo "ERRO: Seu www/index.html não está com o código novo do Nitro!"
             exit 1
           fi
 
           cat << 'EOF' > package.json
           {
             "name": "nitro-analog",
-            "version": "1.0.0",
+            "version": "1.1.0",
             "private": true,
             "description": "Nitro — Filtro Analógico 3D LUT para Android",
             "dependencies": {
-              "@capacitor-community/media": "^6.0.0",
               "@capacitor/android": "6.1.2",
-              "@capacitor/core": "6.1.2",
-              "@capacitor/filesystem": "^6.0.1",
-              "@capacitor/share": "^6.0.2"
+              "@capacitor/core": "6.1.2"
             },
             "devDependencies": {
               "@capacitor/cli": "6.1.2",
@@ -89,6 +82,28 @@ jobs:
           }
           EOF
 
+      - name: Instalar ferramentas e embutir fonte Talks
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq imagemagick unzip
+
+          # Procura Talks.ttf / Talks.otf no repositório; se não achar, baixa automaticamente
+          FONT_SRC=$(find . -maxdepth 3 -not -path './android/*' -not -path './node_modules/*' -not -path './www/*' \( -iname '*talks*.ttf' -o -iname '*talks*.otf' \) | head -n 1)
+          if [ -z "$FONT_SRC" ]; then
+            mkdir -p /tmp/talks_font
+            if curl -fsSL -A "Mozilla/5.0" "https://dl.dafont.com/dl/?f=talks" -o /tmp/talks_font/talks.zip; then
+              unzip -oq /tmp/talks_font/talks.zip -d /tmp/talks_font || true
+              FONT_SRC=$(find /tmp/talks_font \( -iname '*.ttf' -o -iname '*.otf' \) | head -n 1)
+            fi
+          fi
+
+          if [ -n "$FONT_SRC" ]; then
+            EXT_LOWER=$(echo "${FONT_SRC##*.}" | tr '[:upper:]' '[:lower:]')
+            cp "$FONT_SRC" "www/Talks.${EXT_LOWER}"
+            echo "Fonte Talks embutida em www/Talks.${EXT_LOWER}"
+          else
+            echo "Aviso: Talks.ttf não encontrado; usando fallback condensado."
+          fi
+
       - name: Instalar dependências
         run: npm install --legacy-peer-deps
 
@@ -101,7 +116,7 @@ jobs:
             theme: {
               extend: {
                 fontFamily: {
-                  serif: ['"Instrument Serif"', 'Georgia', 'serif'],
+                  talks: ['"Talks"', '"Bebas Neue"', 'sans-serif'],
                   sans: ['Inter', 'system-ui', 'sans-serif'],
                   mono: ['"JetBrains Mono"', 'monospace'],
                 },
@@ -128,29 +143,145 @@ jobs:
           fi
           npx cap sync android
 
-      - name: Configurar permissões de Galeria e ícone Nitro PNG
+      - name: Instalar módulo nativo de Galeria (MediaStore) e ícone Nitro clean
         run: |
-          # 1. Permissões para salvar direto no álbum Nitro da Galeria
+          # 1. Módulo nativo Android para salvar direto na Galeria (álbum Nitro) sem menu de compartilhar
+          JAVA_DIR="android/app/src/main/java/com/nitro/analog"
+          mkdir -p "$JAVA_DIR"
+
+          cat << 'EOF' > "$JAVA_DIR/NitroGalleryPlugin.java"
+          package com.nitro.analog;
+
+          import android.content.ContentResolver;
+          import android.content.ContentValues;
+          import android.media.MediaScannerConnection;
+          import android.net.Uri;
+          import android.os.Build;
+          import android.os.Environment;
+          import android.provider.MediaStore;
+          import android.util.Base64;
+
+          import com.getcapacitor.JSObject;
+          import com.getcapacitor.Plugin;
+          import com.getcapacitor.PluginCall;
+          import com.getcapacitor.PluginMethod;
+          import com.getcapacitor.annotation.CapacitorPlugin;
+
+          import java.io.File;
+          import java.io.FileOutputStream;
+          import java.io.OutputStream;
+
+          @CapacitorPlugin(name = "NitroGallery")
+          public class NitroGalleryPlugin extends Plugin {
+
+              @PluginMethod
+              public void saveToGallery(PluginCall call) {
+                  final String base64 = call.getString("base64");
+                  final String filename = call.getString("filename", "nitro-photo.jpg");
+                  final String album = call.getString("album", "Nitro");
+
+                  if (base64 == null || base64.isEmpty()) {
+                      call.reject("Imagem vazia.");
+                      return;
+                  }
+
+                  new Thread(() -> {
+                      try {
+                          int commaIndex = base64.indexOf(',');
+                          String pureBase64 = commaIndex >= 0 ? base64.substring(commaIndex + 1) : base64;
+                          byte[] bytes = Base64.decode(pureBase64, Base64.DEFAULT);
+
+                          if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                              ContentResolver resolver = getContext().getContentResolver();
+                              ContentValues values = new ContentValues();
+                              values.put(MediaStore.Images.Media.DISPLAY_NAME, filename);
+                              values.put(MediaStore.Images.Media.MIME_TYPE, "image/jpeg");
+                              values.put(MediaStore.Images.Media.RELATIVE_PATH, Environment.DIRECTORY_PICTURES + File.separator + album);
+                              values.put(MediaStore.Images.Media.IS_PENDING, 1);
+
+                              Uri uri = resolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values);
+                              if (uri == null) {
+                                  call.reject("Não foi possível gravar na galeria.");
+                                  return;
+                              }
+
+                              try (OutputStream out = resolver.openOutputStream(uri)) {
+                                  if (out == null) {
+                                      call.reject("Falha ao abrir arquivo na galeria.");
+                                      return;
+                                  }
+                                  out.write(bytes);
+                                  out.flush();
+                              }
+
+                              values.clear();
+                              values.put(MediaStore.Images.Media.IS_PENDING, 0);
+                              resolver.update(uri, values, null, null);
+
+                              JSObject ret = new JSObject();
+                              ret.put("uri", uri.toString());
+                              ret.put("album", album);
+                              call.resolve(ret);
+                          } else {
+                              File picturesDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES);
+                              File albumDir = new File(picturesDir, album);
+                              if (!albumDir.exists()) {
+                                  albumDir.mkdirs();
+                              }
+                              File imageFile = new File(albumDir, filename);
+                              try (FileOutputStream fos = new FileOutputStream(imageFile)) {
+                                  fos.write(bytes);
+                                  fos.flush();
+                              }
+
+                              MediaScannerConnection.scanFile(
+                                  getContext(),
+                                  new String[]{imageFile.getAbsolutePath()},
+                                  new String[]{"image/jpeg"},
+                                  null
+                              );
+
+                              JSObject ret = new JSObject();
+                              ret.put("uri", Uri.fromFile(imageFile).toString());
+                              ret.put("album", album);
+                              call.resolve(ret);
+                          }
+                      } catch (Exception e) {
+                          call.reject("Erro ao salvar na galeria: " + e.getMessage(), e);
+                      }
+                  }).start();
+              }
+          }
+          EOF
+
+          cat << 'EOF' > "$JAVA_DIR/MainActivity.java"
+          package com.nitro.analog;
+
+          import android.os.Bundle;
+          import com.getcapacitor.BridgeActivity;
+
+          public class MainActivity extends BridgeActivity {
+              @Override
+              public void onCreate(Bundle savedInstanceState) {
+                  registerPlugin(NitroGalleryPlugin.class);
+                  super.onCreate(savedInstanceState);
+              }
+          }
+          EOF
+
+          # Permissão de compatibilidade apenas para Android 9 ou inferior
           node << 'EOF'
           const fs = require('fs');
           const p = 'android/app/src/main/AndroidManifest.xml';
           let m = fs.readFileSync(p, 'utf8');
-          const perms = [
-            '<uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />',
-            '<uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />',
-            '<uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="29" />'
-          ];
-          for (const perm of perms) {
-            if (!m.includes(perm)) {
-              m = m.replace('<application', '    ' + perm + '\n    <application');
-            }
+          const perm = '<uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />';
+          if (!m.includes(perm)) {
+            m = m.replace('<application', '    ' + perm + '\n    <application');
           }
           fs.writeFileSync(p, m);
           EOF
 
-          # 2. Localizar o PNG da logo do Nitro enviado no repositório
-          sudo apt-get update -qq && sudo apt-get install -y -qq imagemagick
-
+          # 2. Ícone clean do Nitro: fundo branco (#FFFFFF) + logo um pouco menor e centralizada
           ICON_SRC=$(find . -maxdepth 2 -not -path './android/*' -not -path './node_modules/*' -iname '*nitro*.png' | head -n 1)
           if [ -z "$ICON_SRC" ]; then
             ICON_SRC=$(find . -maxdepth 2 -not -path './android/*' -not -path './node_modules/*' -iname 'icon.png' | head -n 1)
@@ -163,39 +294,28 @@ jobs:
             echo "ERRO: Envie o arquivo PNG da logo do Nitro para a raiz do repositório!"
             exit 1
           fi
-          echo "Usando ícone encontrado: $ICON_SRC"
 
-          # Cor de fundo do ícone: #0A0A0A (preto fosco, máximo contraste pro amarelo)
-          # Se quiser fundo branco, troque "#0A0A0A" abaixo por "#FFFFFF"
-          ICON_BG="#0A0A0A"
-
-          # Se o PNG já tiver fundo sólido (sem transparência), usa branco para não criar borda
+          ICON_BG="#FFFFFF"
           ALPHA=$(convert "$ICON_SRC" -alpha extract -crop 1x1+0+0 +repage -format "%[fx:mean]" info: 2>/dev/null || echo "1")
           IS_TRANSPARENT=$(awk "BEGIN {print ($ALPHA < 0.5) ? 1 : 0}")
-          if [ "$IS_TRANSPARENT" -eq 0 ]; then
-            ICON_BG="#FFFFFF"
-          fi
-          echo "Fundo escolhido para o ícone: $ICON_BG (transparente=$IS_TRANSPARENT)"
 
-          # Remove ícones antigos do Capacitor para evitar conflito de recursos
           find android/app/src/main/res -name "ic_launcher_foreground.*" -delete
-
           mkdir -p android/app/src/main/res/values
           mkdir -p android/app/src/main/res/drawable-nodpi
           mkdir -p android/app/src/main/res/mipmap-anydpi-v26
 
-          cat << EOF > android/app/src/main/res/values/ic_launcher_background.xml
+          cat << 'EOF' > android/app/src/main/res/values/ic_launcher_background.xml
           <?xml version="1.0" encoding="utf-8"?>
           <resources>
-              <color name="ic_launcher_background">${ICON_BG}</color>
+              <color name="ic_launcher_background">#FFFFFF</color>
           </resources>
           EOF
 
-          # Camada frontal do Ícone Adaptativo (432x432 com logo centralizada na zona segura de 296px)
+          # Logo menor (216px dentro do canvas adaptativo de 432px) sobre fundo branco
           if [ "$IS_TRANSPARENT" -eq 1 ]; then
-            convert "$ICON_SRC" -trim +repage -resize 296x296 -background none -gravity center -extent 432x432 android/app/src/main/res/drawable-nodpi/ic_launcher_foreground.png
+            convert "$ICON_SRC" -trim +repage -resize 216x216 -background none -gravity center -extent 432x432 android/app/src/main/res/drawable-nodpi/ic_launcher_foreground.png
           else
-            convert "$ICON_SRC" -fuzz 2% -trim +repage -resize 296x296 -background "$ICON_BG" -gravity center -extent 432x432 android/app/src/main/res/drawable-nodpi/ic_launcher_foreground.png
+            convert "$ICON_SRC" -fuzz 2% -trim +repage -resize 216x216 -background "$ICON_BG" -gravity center -extent 432x432 android/app/src/main/res/drawable-nodpi/ic_launcher_foreground.png
           fi
 
           cat << 'EOF' > android/app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml
@@ -208,14 +328,18 @@ jobs:
 
           cp android/app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml android/app/src/main/res/mipmap-anydpi-v26/ic_launcher_round.xml
 
-          # Ícones PNG em todas as resoluções para launchers antigos
+          # Ícones PNG legados com fundo branco e mais respiro (64%)
           for pair in "mdpi:48" "hdpi:72" "xhdpi:96" "xxhdpi:144" "xxxhdpi:192"; do
             dpi="${pair%%:*}"
             sz="${pair##*:}"
-            inner=$(( sz * 80 / 100 ))
+            inner=$(( sz * 64 / 100 ))
             dir="android/app/src/main/res/mipmap-${dpi}"
             if [ -d "$dir" ]; then
-              convert "$ICON_SRC" -fuzz 2% -trim +repage -resize "${inner}x${inner}" -background "$ICON_BG" -gravity center -extent "${sz}x${sz}" "$dir/ic_launcher.png"
+              if [ "$IS_TRANSPARENT" -eq 1 ]; then
+                convert "$ICON_SRC" -trim +repage -resize "${inner}x${inner}" -background "$ICON_BG" -alpha remove -alpha off -gravity center -extent "${sz}x${sz}" "$dir/ic_launcher.png"
+              else
+                convert "$ICON_SRC" -fuzz 2% -trim +repage -resize "${inner}x${inner}" -background "$ICON_BG" -gravity center -extent "${sz}x${sz}" "$dir/ic_launcher.png"
+              fi
               cp "$dir/ic_launcher.png" "$dir/ic_launcher_round.png"
             fi
           done
@@ -233,3 +357,4 @@ jobs:
           name: Nitro-Android-APK
           path: Nitro.apk
           retention-days: 14
+
